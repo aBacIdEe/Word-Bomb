@@ -1,6 +1,6 @@
 const CONFIG = {
-    API_BASE_URL: 'http://localhost:3000',
-    WS_URL: 'ws://localhost:3000'
+    API_BASE_URL: 'https://word-bomb-production.up.railway.app:8080',
+    WS_URL: 'ws://word-bomb-production.up.railway.app:8080'
 };
 
 let ws = null;
