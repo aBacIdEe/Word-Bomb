@@ -1,0 +1,12 @@
+{
+    "Animals that start with 'C'": ["cat", "cow", "chicken", "cheetah", "chimpanzee", "cobra", "crab", "crocodile", "camel", "cardinal"],
+    "Colors": ["red", "blue", "green", "yellow", "purple", "orange", "pink", "brown", "black", "white", "gray", "violet"],
+    "Things you find in a kitchen": ["stove", "refrigerator", "sink", "microwave", "toaster", "knife", "fork", "spoon", "plate", "cup", "pan", "pot"],
+    "Words that rhyme with 'cat'": ["hat", "bat", "rat", "mat", "fat", "sat", "pat", "flat", "chat", "that"],
+    "Five letter words starting with 'S'": ["snake", "smile", "start", "stone", "story", "storm", "smart", "small", "super", "space"],
+    "Things that are round": ["ball", "wheel", "coin", "planet", "moon", "orange", "apple", "clock", "tire", "button"],
+    "Professions": ["doctor", "teacher", "engineer", "nurse", "lawyer", "chef", "pilot", "artist", "writer", "musician"],
+    "Things you wear": ["shirt", "pants", "shoes", "hat", "jacket", "socks", "dress", "skirt", "gloves", "scarf"],
+    "Sports": ["football", "basketball", "soccer", "tennis", "baseball", "golf", "swimming", "running", "cycling", "boxing"],
+    "Fruits": ["apple", "banana", "orange", "grape", "strawberry", "blueberry", "pineapple", "mango", "peach", "cherry"]
+  }

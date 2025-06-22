@@ -4,15 +4,13 @@ const { generateRoomId } = require('../utils/idGenerator');
 class RoomManager {
   constructor() {
     this.rooms = new Map();
-    this.playerConnections = new Map();
-    this.startCleanupTimer();
   }
 
   createRoom(settings) {
     const roomId = generateRoomId();
     const room = new GameRoom(roomId, settings);
     this.rooms.set(roomId, room);
-    return room;
+    return roomId;
   }
 
   getRoom(roomId) {
@@ -28,8 +26,6 @@ class RoomManager {
       .filter(room => !room.settings.private)
       .map(room => room.getPublicInfo());
   }
-
-  // ... other methods
 }
 
 module.exports = RoomManager;

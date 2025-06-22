@@ -1,10 +1,8 @@
-// server.js (updated sections)
 const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
 const RoomManager = require('./services/roomManager');
 const MessageHandler = require('./services/messageHandler');
-const { router: gameRoutes, setRoomManager } = require('./routes/gameRoutes');
 
 const app = express();
 const server = http.createServer(app);
@@ -17,12 +15,6 @@ app.use(express.static('public'));
 // Initialize services
 const roomManager = new RoomManager();
 const messageHandler = new MessageHandler(roomManager);
-
-// Set room manager for HTTP routes
-setRoomManager(roomManager);
-
-// Routes
-app.use('/api', gameRoutes);
 
 // WebSocket handling
 wss.on('connection', (ws, req) => {
