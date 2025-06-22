@@ -1,7 +1,4 @@
-const CONFIG = {
-    API_BASE_URL: 'https://word-bomb-production.up.railway.app:8080',
-    WS_URL: 'ws://word-bomb-production.up.railway.app:8080'
-};
+require('dotenv').config()
 
 let ws = null;
 let currentPlayer = null;
@@ -13,11 +10,11 @@ let lastSentWord = '';
 
 // WebSocket connection with status indicator
 async function connectWebSocket() {
-    console.log('Connecting to:', CONFIG.WS_URL);
+    console.log('Connecting to:', process.env.WS_URL);
     updateConnectionStatus('connecting');
     
     try {
-        ws = new WebSocket(CONFIG.WS_URL);
+        ws = new WebSocket(process.env.WS_URL);
         
         ws.onopen = () => {
             updateConnectionStatus('connected');
