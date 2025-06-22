@@ -3,11 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Word Game</title>
+    <title>Word Bomb Game</title>
     <link rel="stylesheet" href="index.css">
-    <script src="index.js"></script>
+    <script src="index.js" defer></script>
 </head>
 <body>
+    <div class="connection-status" id="connectionStatus">Connecting...</div>
+    
     <div class="container">
         <div class="header">
             <h1>Word Bomb</h1>
@@ -19,16 +21,24 @@
             <div id="homeScreen" class="screen active">
                 <div id="createRoomSection">
                     <div class="input-group">
+                        <label for="playerName">Your Name</label>
                         <input type="text" id="playerName" placeholder="Enter your name" maxlength="20">
                     </div>
-                    <button class="btn" onclick="createRoom()">Create New Game</button>
+                    <div class="text-center">
+                        <button class="btn" onclick="createRoom()">🎮 Create New Game</button>
+                    </div>
                 </div>
+
+                <hr style="margin: 30px 0; border: none; height: 1px; background: #e9ecef;">
 
                 <div id="joinRoomSection">
                     <div class="input-group">
+                        <label for="roomIdInput">Room Code</label>
                         <input type="text" id="roomIdInput" placeholder="Enter room code" maxlength="10">
                     </div>
-                    <button class="btn" onclick="joinRoom()">Join Room</button>
+                    <div class="text-center">
+                        <button class="btn" onclick="joinRoom()">🚪 Join Room</button>
+                    </div>
                 </div>
             </div>
 
@@ -36,48 +46,27 @@
             <div id="lobbyScreen" class="screen">
                 <div class="game-header">
                     <div>
-                        <h2>Game Lobby</h2>
-                        <p>Room Code: <strong id="currentRoomId"></strong></p>
+                        <h2>🎯 Game Lobby</h2>
+                        <p>Room Code: <strong id="currentRoomId">-----</strong></p>
                     </div>
-                    <button class="btn secondary" onclick="leaveRoom()">Leave Room</button>
+                    <button class="btn secondary" onclick="leaveRoom()">← Leave Room</button>
                 </div>
 
                 <div class="players-grid" id="lobbyPlayers"></div>
 
                 <div id="gameSettings" class="hidden">
-                    <h3>Game Settings</h3>
+                    <h3>⚙️ Game Settings</h3>
                     <div class="input-group">
-                        <label for="maxPlayers">Max Players (2-20)</label>
-                        <input type="number" id="maxPlayers" min="2" max="20" value="8">
+                        <label for="maxPlayers">Max Players (1-20)</label>
+                        <input type="number" id="maxPlayers" min="1" max="20" value="8">
                     </div>
                     <div class="input-group">
-                        <label for="turnTimeLimit">Turn Time Limit</label>
-                        <select id="turnTimeLimit">
-                            <option value="15000">15 seconds</option>
-                            <option value="30000" selected>30 seconds</option>
-                            <option value="60000">1 minute</option>
-                            <option value="120000">2 minutes</option>
-                        </select>
+                        <label for="turnTimeLimit">Turn Time Limit (.1-120 seconds)</label>
+                        <input type="number" id="turnTimeLimit" placeholder="Enter seconds">
                     </div>
-                    <div class="input-group">
-                        <label for="maxRounds">Number of Rounds</label>
-                        <select id="maxRounds">
-                            <option value="5">5 rounds</option>
-                            <option value="10" selected>10 rounds</option>
-                            <option value="15">15 rounds</option>
-                            <option value="20">20 rounds</option>
-                        </select>
+                    <div class="text-center">
+                        <button class="btn" onclick="updateSettings()">💾 Update Settings</button>
                     </div>
-                    <div class="input-group">
-                        <label for="difficulty">Difficulty</label>
-                        <select id="difficulty">
-                            <option value="">Random</option>
-                            <option value="easy">Easy</option>
-                            <option value="medium">Medium</option>
-                            <option value="hard">Hard</option>
-                        </select>
-                    </div>
-                    <button class="btn" onclick="updateSettings()">Update Settings</button>
                 </div>
 
                 <div class="text-center">
@@ -88,59 +77,34 @@
             <!-- Game Screen -->
             <div id="gameScreen" class="screen">
                 <div class="game-header">
-                    <div>
-                        Round <span id="currentRound">1</span>/<span id="totalRounds">10</span> | 
-                        <span id="playerCount">4</span> Players
+                    <div class="game-info">
+                        <span>👥 <span id="playerCount">0</span> Players</span>
                     </div>
                     <div class="timer" id="gameTimer">30</div>
                 </div>
 
+                <div id="turnIndicator" class="turn-indicator hidden">
+                    <span id="turnText">Waiting for game to start...</span>
+                </div>
+
                 <div class="prompt-section">
                     <h2 id="gamePrompt">Loading prompt...</h2>
-                    <div id="promptDifficulty">MEDIUM</div>
                 </div>
 
                 <div id="wordInputSection" class="text-center">
-                    <input type="text" id="wordInput" class="word-input" placeholder="Enter your word here..." maxlength="50">
+                    <input type="text" id="wordInput" class="word-input" placeholder="Type your word here..." maxlength="50">
                     <br>
-                    <button class="btn" onclick="submitWord()" id="submitBtn">Submit Word</button>
-                </div>
-
-                <div id="submissionStatus" class="text-center hidden">
-                    <h4>✅ Word Submitted!</h4>
-                    <p>Waiting for other players... (<span id="submissionCount">1</span>/<span id="totalPlayers">4</span>)</p>
+                    <button class="btn" onclick="submitWord()" id="submitBtn">📝 Submit Word</button>
                 </div>
 
                 <div class="players-grid" id="gamePlayers"></div>
-            </div>
-
-            <!-- Results Screen -->
-            <div id="resultsScreen" class="screen">
-                <h2>Round <span id="resultsRound">1</span> Results</h2>
-                
-                <table class="results-table">
-                    <thead>
-                        <tr><th>Player</th><th>Word</th><th>Valid</th><th>Points</th></tr>
-                    </thead>
-                    <tbody id="resultsTableBody"></tbody>
-                </table>
-
-                <div>
-                    <h4>Some Correct Answers:</h4>
-                    <div class="answer-tags" id="correctAnswerTags"></div>
-                </div>
-
-                <div>
-                    <h3>Current Leaderboard</h3>
-                    <div class="players-grid" id="leaderboard"></div>
-                </div>
             </div>
 
             <!-- Final Results Screen -->
             <div id="finalResultsScreen" class="screen">
                 <div class="text-center">
                     <h2>🎉 Game Complete!</h2>
-                    <h3>Final Leaderboard</h3>
+                    <h3>🏆 Final Leaderboard</h3>
                     <div class="players-grid" id="finalLeaderboard"></div>
                     <button class="btn" onclick="backToLobby()">🔄 Play Again</button>
                     <button class="btn secondary" onclick="backToHome()">🏠 Home</button>

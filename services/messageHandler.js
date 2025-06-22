@@ -4,6 +4,7 @@ const { generatePlayerId } = require("../utils/idGenerator");
 class MessageHandler {
   constructor(roomManager) {
     this.roomManager = roomManager;
+    this.playerConnections = new Map(); // ws -> {playerId, roomId, playerName}
   }
 
   handleConnection(ws, req) {
@@ -15,12 +16,17 @@ class MessageHandler {
         console.log("Parsed message:", message);
         this.handleMessage(ws, message);
       } catch (error) {
-        console.log(error);
+        console.log("JSON parse error:", error);
         this.sendError(ws, "Invalid JSON message");
       }
     });
 
     ws.on("close", () => {
+      this.handlePlayerDisconnect(ws);
+    });
+
+    ws.on("error", (error) => {
+      console.log("WebSocket error:", error);
       this.handlePlayerDisconnect(ws);
     });
   }
@@ -45,12 +51,20 @@ class MessageHandler {
         this.handleSubmitWord(ws, message);
         break;
 
+      case "word_update":
+        this.handleWordUpdate(ws, message);
+        break;
+
       case "update_settings":
         this.handleUpdateSettings(ws, message);
         break;
 
-      case "get_game_state":
-        this.handleGetGameState(ws, message);
+      case "continue_game":
+        this.handleContinueGame(ws, message);
+        break;
+
+      case "back_to_lobby":
+        this.handleBackToLobby(ws, message);
         break;
 
       default:
@@ -59,25 +73,55 @@ class MessageHandler {
   }
 
   handleCreateRoom(ws, message) {
-    const { settings } = message;
+    console.log("Creating room with message:", message);
+    const { playerName, settings } = message;
 
-    // Create new room
-    const roomId = this.roomManager.createRoom(ws, settings);
-    // Store player connection info
+    if (!playerName || typeof playerName !== "string") {
+      return this.sendError(ws, "Player name required");
+    }
+
+    // Create new room with default settings
+    const roomId = this.roomManager.createRoom(settings);
+    const room = this.roomManager.getRoom(roomId);
+    
+    if (!room) {
+      return this.sendError(ws, "Failed to create room");
+    }
+
+    // Generate player ID and add to room
     const playerId = generatePlayerId();
-    this.roomManager.playerConnections.set(ws, { playerId, roomId });
-    // Send room created confirmation
-    ws.send(
-      JSON.stringify({
-        type: "room_created",
-        roomId: roomId,
-        playerId: playerId,
-        isCreator: true,
-        gameState: this.roomManager.getRoom(roomId).getGameSummary(),
-        players: [playerId],
-      })
-    );
-    console.log(`Room ${roomId} created by player ${playerId}`);
+    const addResult = room.addPlayer(playerId, ws);
+    
+    if (!addResult.success) {
+      return this.sendError(ws, addResult.error);
+    }
+
+    // Store connection info
+    this.playerConnections.set(ws, {
+      playerId: playerId,
+      roomId: roomId,
+      playerName: playerName
+    });
+
+    // Set player name in room
+    const player = room.players.get(playerId);
+    if (player) {
+      player.name = playerName;
+    }
+
+    // Send room joined confirmation
+    ws.send(JSON.stringify({
+      type: "room_joined",
+      roomId: roomId,
+      playerId: playerId,
+      isCreator: true,
+      players: Array.from(room.players.values()).map(p => ({
+        id: playerId,
+        name: playerName
+      }))
+    }));
+
+    console.log(`Room ${roomId} created by player ${playerName} (${playerId})`);
   }
 
   handleJoinRoom(ws, message) {
@@ -92,37 +136,61 @@ class MessageHandler {
       return this.sendError(ws, "Room not found");
     }
 
-    if (room.players.size >= room.settings.maxPlayers) {
-      return this.sendError(ws, "Room is full");
-    }
-
     if (room.status === "active") {
       return this.sendError(ws, "Game already in progress");
     }
 
     const playerId = generatePlayerId();
-    const player = room.addPlayer(playerId, playerName, ws);
+    const addResult = room.addPlayer(playerId, ws);
+
+    if (!addResult.success) {
+      return this.sendError(ws, addResult.error);
+    }
+
+    // Store connection info
+    this.playerConnections.set(ws, {
+      playerId: playerId,
+      roomId: roomId,
+      playerName: playerName
+    });
+
+    // Set player name in room
+    const player = room.players.get(playerId);
+    if (player) {
+      player.name = playerName;
+    }
+
+    // Get all players for response
+    const allPlayers = Array.from(room.players.values()).map((p, index) => {
+      const connectionInfo = Array.from(this.playerConnections.values())
+        .find(conn => conn.playerId === (Array.from(room.players.keys())[index]));
+      return {
+        id: Array.from(room.players.keys())[index],
+        name: connectionInfo ? connectionInfo.playerName : `Player ${index + 1}`
+      };
+    });
 
     // Send join confirmation to new player
-    ws.send(
-      JSON.stringify({
-        type: "room_joined",
-        roomId: roomId,
-        playerId: playerId,
-        isCreator: room.creator === playerId,
-        gameState: room.getGameSummary(),
-        players: Array.from(room.players.values()).map((p) => ({
-          id: p.id,
-          name: p.name,
-        })),
-      })
-    );
+    ws.send(JSON.stringify({
+      type: "room_joined",
+      roomId: roomId,
+      playerId: playerId,
+      isCreator: room.creator === playerId,
+      players: allPlayers
+    }));
 
-    console.log(`Player ${playerName} joined room ${roomId}`);
+    // Broadcast to other players that someone joined
+    this.broadcastToRoom(room, {
+      type: "player_joined",
+      player: { id: playerId, name: playerName },
+      players: allPlayers
+    }, ws);
+
+    console.log(`Player ${playerName} (${playerId}) joined room ${roomId}`);
   }
 
   handleStartGame(ws, message) {
-    const playerInfo = this.roomManager.playerConnections.get(ws);
+    const playerInfo = this.playerConnections.get(ws);
     if (!playerInfo) {
       return this.sendError(ws, "Not connected to a room");
     }
@@ -145,11 +213,8 @@ class MessageHandler {
     // Broadcast game start to all players
     this.broadcastToRoom(room, {
       type: "game_started",
-      gameState: room.getGameSummary(),
+      gameState: room.getGameSummary()
     });
-
-    // Start first round
-    this.startRound(room);
 
     console.log(`Game started in room ${room.id}`);
   }
@@ -161,7 +226,7 @@ class MessageHandler {
       return this.sendError(ws, "Valid word required");
     }
 
-    const playerInfo = this.roomManager.playerConnections.get(ws);
+    const playerInfo = this.playerConnections.get(ws);
     if (!playerInfo) {
       return this.sendError(ws, "Not connected to a room");
     }
@@ -171,40 +236,51 @@ class MessageHandler {
       return this.sendError(ws, "Room not found");
     }
 
-    const result = room.submitWord(playerInfo.playerId, word);
+    // Check if it's this player's turn
+    if (room.currentTurn !== playerInfo.playerId) {
+      return this.sendError(ws, "Not your turn");
+    }
+
+    // Set the player's word and submit
+    const player = room.players.get(playerInfo.playerId);
+    if (player) {
+      player.word = word;
+    }
+
+    const result = room.submitWord(playerInfo.playerId);
     if (!result.success) {
       return this.sendError(ws, result.error);
     }
 
+    console.log(`Player ${playerInfo.playerName} submitted word: ${word}`);
+  }
+
+  handleWordUpdate(ws, message) {
+    const { word } = message;
+
+    const playerInfo = this.playerConnections.get(ws);
+    if (!playerInfo) {
+      return; // Silently ignore if not connected
+    }
+
+    const room = this.roomManager.getRoom(playerInfo.roomId);
+    if (!room || room.status !== 'active') {
+      return; // Silently ignore if room not found or not active
+    }
+
+    // Update player's current word (for real-time display)
     const player = room.players.get(playerInfo.playerId);
+    if (player) {
+      player.word = word || "";
+    }
 
-    // Send confirmation to submitting player
-    ws.send(
-      JSON.stringify({
-        type: "word_submitted",
-        word: word,
-        totalPlayers: room.players.size,
-      })
-    );
-
-    // Broadcast that player submitted (without revealing the word yet)
-    this.broadcastToRoom(
-      room,
-      {
-        type: "player_submitted",
-        playerName: player.name,
-        totalPlayers: room.players.size,
-      },
-      ws
-    );
-
-    console.log(`Player ${player.name} submitted word: ${word}`);
+    // The regular game summary broadcast will send this update to all players
   }
 
   handleUpdateSettings(ws, message) {
     const { settings } = message;
 
-    const playerInfo = this.roomManager.playerConnections.get(ws);
+    const playerInfo = this.playerConnections.get(ws);
     if (!playerInfo) {
       return this.sendError(ws, "Not connected to a room");
     }
@@ -223,44 +299,296 @@ class MessageHandler {
       return this.sendError(ws, "Cannot update settings during game");
     }
 
-    // Update settings (with validation)
-    if (
-      settings.maxPlayers &&
-      settings.maxPlayers >= 2 &&
-      settings.maxPlayers <= 20
-    ) {
+    // Update settings with validation
+    if (settings.maxPlayers && settings.maxPlayers >= 1 && settings.maxPlayers <= 20) {
       room.settings.maxPlayers = settings.maxPlayers;
     }
 
-    if (
-      settings.turnTimeLimit &&
-      settings.turnTimeLimit >= 10000 &&
-      settings.turnTimeLimit <= 120000
-    ) {
+    if (settings.turnTimeLimit && settings.turnTimeLimit >= 1000 && settings.turnTimeLimit <= 120000) {
       room.settings.turnTimeLimit = settings.turnTimeLimit;
     }
 
-    console.log(`Settings updated for room ${room.id}`);
+    // Broadcast updated settings to all players
+    this.broadcastToRoom(room, {
+      type: "settings_updated",
+      settings: settings
+    });
+
+    console.log(`Settings updated for room ${room.id}:`, settings);
+  }
+
+  handleContinueGame(ws, message) {
+    const playerInfo = this.playerConnections.get(ws);
+    if (!playerInfo) {
+      return this.sendError(ws, "Not connected to a room");
+    }
+
+    const room = this.roomManager.getRoom(playerInfo.roomId);
+    if (!room) {
+      return this.sendError(ws, "Room not found");
+    }
+
+    // Continue to next round or end game
+    if (room.status === 'finished') {
+      // Game is over, can't continue
+      return this.sendError(ws, "Game is finished");
+    }
+
+    // Start next round
+    room.startNewRound();
+  }
+
+  handleBackToLobby(ws, message) {
+    const playerInfo = this.playerConnections.get(ws);
+    if (!playerInfo) {
+      return this.sendError(ws, "Not connected to a room");
+    }
+
+    const room = this.roomManager.getRoom(playerInfo.roomId);
+    if (!room) {
+      return this.sendError(ws, "Room not found");
+    }
+
+    // Only creator can reset room
+    if (room.creator !== playerInfo.playerId) {
+      return this.sendError(ws, "Only room creator can reset the game");
+    }
+
+    // Reset room to waiting state with proper cleanup
+    this.resetRoomToLobby(room);
+
+    // Broadcast room reset
+    this.broadcastToRoom(room, {
+      type: "room_reset"
+    });
+
+    console.log(`Room ${room.id} reset to lobby`);
+  }
+
+  handlePlayerDisconnect(ws) {
+    const playerInfo = this.playerConnections.get(ws);
+    if (!playerInfo) {
+      return; // Player wasn't connected to a room
+    }
+
+    const room = this.roomManager.getRoom(playerInfo.roomId);
+    if (room) {
+      // Remove player from room
+      room.removePlayer(playerInfo.playerId);
+
+      // Broadcast that player left
+      this.broadcastToRoom(room, {
+        type: "player_left",
+        playerName: playerInfo.playerName,
+        playerId: playerInfo.playerId
+      });
+
+      // If room is empty, clean up and delete
+      if (room.players.size === 0) {
+        this.cleanupAndDeleteRoom(room);
+      } else if (room.creator === playerInfo.playerId) {
+        // Transfer creator to another player
+        const newCreator = Array.from(room.players.keys())[0];
+        room.creator = newCreator;
+        console.log(`Room ${room.id} creator transferred to ${newCreator}`);
+      }
+
+      console.log(`Player ${playerInfo.playerName} disconnected from room ${room.id}`);
+    }
+
+    // Remove from connections map
+    this.playerConnections.delete(ws);
+  }
+
+  // NEW METHOD: Comprehensive room cleanup before deletion
+  cleanupAndDeleteRoom(room) {
+    console.log(`Starting cleanup for room ${room.id}`);
+    
+    // Clear all timers
+    if (room.turnTimer) {
+      clearTimeout(room.turnTimer);
+      room.turnTimer = null;
+    }
+    
+    if (room.gameTimer) {
+      clearTimeout(room.gameTimer);
+      room.gameTimer = null;
+    }
+    
+    if (room.roundTimer) {
+      clearTimeout(room.roundTimer);
+      room.roundTimer = null;
+    }
+    
+    // Clear any intervals
+    if (room.updateInterval) {
+      clearInterval(room.updateInterval);
+      room.updateInterval = null;
+    }
+    
+    if (room.heartbeatInterval) {
+      clearInterval(room.heartbeatInterval);
+      room.heartbeatInterval = null;
+    }
+    
+    // Close all WebSocket connections in the room
+    room.players.forEach((player, playerId) => {
+      if (player.ws && player.ws.readyState === 1) { // WebSocket.OPEN
+        try {
+          player.ws.close(1000, 'Room deleted');
+        } catch (error) {
+          console.log(`Error closing WebSocket for player ${playerId}:`, error);
+        }
+      }
+      // Null the WebSocket reference
+      player.ws = null;
+    });
+    
+    // Clear all room data
+    room.players.clear();
+    room.currentTurn = null;
+    room.status = null;
+    room.creator = null;
+    room.settings = null;
+    
+    // Clear game-specific data
+    if (room.guessedWords) {
+      room.guessedWords.length = 0;
+      room.guessedWords = null;
+    }
+    
+    if (room.gameState) {
+      room.gameState = null;
+    }
+    
+    if (room.rounds) {
+      room.rounds.length = 0;
+      room.rounds = null;
+    }
+    
+    // Remove all player connections related to this room
+    for (const [ws, playerInfo] of this.playerConnections) {
+      if (playerInfo.roomId === room.id) {
+        this.playerConnections.delete(ws);
+      }
+    }
+    
+    // Finally delete the room from roomManager
+    this.roomManager.rooms.delete(room.id);
+    
+    console.log(`Room ${room.id} completely cleaned up and deleted`);
+  }
+
+  // NEW METHOD: Reset room to lobby state with proper cleanup
+  resetRoomToLobby(room) {
+    // Clear all game-related timers
+    if (room.turnTimer) {
+      clearTimeout(room.turnTimer);
+      room.turnTimer = null;
+    }
+    
+    if (room.gameTimer) {
+      clearTimeout(room.gameTimer);
+      room.gameTimer = null;
+    }
+    
+    if (room.roundTimer) {
+      clearTimeout(room.roundTimer);
+      room.roundTimer = null;
+    }
+    
+    // Clear game intervals
+    if (room.updateInterval) {
+      clearInterval(room.updateInterval);
+      room.updateInterval = null;
+    }
+    
+    // Reset room state
+    room.status = 'waiting';
+    room.currentTurn = null;
+    
+    // Clear game data
+    if (room.guessedWords) {
+      room.guessedWords.length = 0;
+    } else {
+      room.guessedWords = [];
+    }
+    
+    if (room.gameState) {
+      room.gameState = null;
+    }
+    
+    if (room.rounds) {
+      room.rounds.length = 0;
+    }
+    
+    // Reset all player scores and words
+    room.players.forEach(player => {
+      player.score = 0;
+      player.word = "";
+      player.ready = false; // Reset ready state if it exists
+      player.hasSubmitted = false; // Reset submission state if it exists
+    });
   }
 
   broadcastToRoom(room, message, excludeWs = null) {
     const messageStr = JSON.stringify(message);
 
     room.players.forEach((player) => {
-      if (player.ws !== excludeWs && player.ws.readyState === 1) {
+      if (player.ws !== excludeWs && player.ws && player.ws.readyState === 1) {
         // WebSocket.OPEN = 1
-        player.ws.send(messageStr);
+        try {
+          player.ws.send(messageStr);
+        } catch (error) {
+          console.log("Error sending message to player:", error);
+          // If sending fails, consider the connection dead
+          player.ws = null;
+        }
       }
     });
   }
 
   sendError(ws, errorMessage) {
-    ws.send(
-      JSON.stringify({
-        type: "error",
-        message: errorMessage,
-      })
-    );
+    if (ws && ws.readyState === 1) { // WebSocket.OPEN
+      try {
+        ws.send(JSON.stringify({
+          type: "error",
+          message: errorMessage
+        }));
+      } catch (error) {
+        console.log("Error sending error message:", error);
+      }
+    }
+  }
+
+  // Helper method to get player info from WebSocket
+  getPlayerInfo(ws) {
+    return this.playerConnections.get(ws);
+  }
+
+  // Helper method to get room by WebSocket
+  getRoomByWs(ws) {
+    const playerInfo = this.playerConnections.get(ws);
+    if (!playerInfo) return null;
+    return this.roomManager.getRoom(playerInfo.roomId);
+  }
+
+  // NEW METHOD: Force cleanup of stale rooms (can be called periodically)
+  cleanupStaleRooms() {
+    this.roomManager.rooms.forEach((room, roomId) => {
+      let hasActiveConnections = false;
+      
+      room.players.forEach((player) => {
+        if (player.ws && player.ws.readyState === 1) {
+          hasActiveConnections = true;
+        }
+      });
+      
+      if (!hasActiveConnections) {
+        console.log(`Found stale room ${roomId}, cleaning up...`);
+        this.cleanupAndDeleteRoom(room);
+      }
+    });
   }
 }
 

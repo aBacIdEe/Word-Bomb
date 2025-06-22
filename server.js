@@ -1,7 +1,7 @@
 const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
-const RoomManager = require('./services/roomManager');
+const RoomManager = require('./models/roomManager');
 const MessageHandler = require('./services/messageHandler');
 
 const app = express();

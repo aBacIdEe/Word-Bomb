@@ -1,76 +1,146 @@
 const CONFIG = {
-    // Change this to match your backend server port
     API_BASE_URL: 'http://localhost:3000',
     WS_URL: 'ws://localhost:3000'
 };
 
-// Game state
 let ws = null;
 let currentPlayer = null;
 let currentRoom = null;
-let gameState = null;
 let isCreator = false;
+let gameState = null;
 let gameTimer = null;
+let lastSentWord = '';
 
-// WebSocket connection
+// WebSocket connection with status indicator
 async function connectWebSocket() {
     console.log('Connecting to:', CONFIG.WS_URL);
-    ws = new WebSocket(CONFIG.WS_URL);
+    updateConnectionStatus('connecting');
     
-    ws.onopen = () => showMessage('Connected to server', 'success');
-    ws.onmessage = (event) => handleServerMessage(JSON.parse(event.data));
-    ws.onclose = () => {
-        showMessage('Disconnected from server', 'error');
+    try {
+        ws = new WebSocket(CONFIG.WS_URL);
+        
+        ws.onopen = () => {
+            updateConnectionStatus('connected');
+            showMessage('Connected to server', 'success');
+        };
+        
+        ws.onmessage = (event) => {
+            try {
+                const message = JSON.parse(event.data);
+                handleServerMessage(message);
+            } catch (e) {
+                console.error('Failed to parse message:', e);
+            }
+        };
+        
+        ws.onclose = () => {
+            updateConnectionStatus('disconnected');
+            showMessage('Disconnected from server', 'error');
+            setTimeout(connectWebSocket, 3000);
+        };
+        
+        ws.onerror = (error) => {
+            updateConnectionStatus('disconnected');
+            showMessage('Connection error', 'error');
+            console.error('WebSocket error:', error);
+        };
+    } catch (error) {
+        updateConnectionStatus('disconnected');
+        showMessage('Failed to connect', 'error');
         setTimeout(connectWebSocket, 3000);
-    };
-    ws.onerror = () => showMessage('Connection error', 'error');
+    }
 }
 
-// Message handling
+// Update connection status indicator
+function updateConnectionStatus(status) {
+    const statusEl = document.getElementById('connectionStatus');
+    if (statusEl) {
+        statusEl.className = `connection-status ${status}`;
+        statusEl.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+    }
+}
+
+// Message handling - server-driven architecture
 function handleServerMessage(message) {
     console.log('Received:', message);
     
     const handlers = {
         room_joined: (msg) => {
-            const playerNameEl = safeGet('playerName');
+            const playerNameEl = document.getElementById('playerName');
             if (!playerNameEl) return;
             
             currentPlayer = { id: msg.playerId, name: playerNameEl.value };
             currentRoom = msg.roomId;
             isCreator = msg.isCreator;
             
-            const roomIdEl = safeGet('currentRoomId');
+            const roomIdEl = document.getElementById('currentRoomId');
             if (roomIdEl) roomIdEl.textContent = msg.roomId;
             
             updateLobbyPlayers(msg.players);
             showScreen('lobbyScreen');
             
             if (isCreator) {
-                const settingsEl = safeGet('gameSettings');
-                const startBtnEl = safeGet('startGameBtn');
+                const settingsEl = document.getElementById('gameSettings');
+                const startBtnEl = document.getElementById('startGameBtn');
                 if (settingsEl) settingsEl.classList.remove('hidden');
                 if (startBtnEl) startBtnEl.classList.remove('hidden');
             }
         },
+        
         player_joined: (msg) => {
             showMessage(`${msg.player.name} joined the game`, 'info');
-            addPlayerToLobby(msg.player);
+            updateLobbyPlayers(msg.players);
         },
-        player_left: (msg) => showMessage(`${msg.playerName} left the game`, 'info'),
+        
+        player_left: (msg) => {
+            showMessage(`${msg.playerName} left the game`, 'info');
+            updateLobbyPlayers(msg.players);
+        },
+        
+        game_summary: (msg) => {
+            gameState = msg;
+            updateGameDisplay(msg);
+            
+            const wordInput = document.getElementById('wordInput');
+            const isMyTurn = msg.turn === currentPlayer.id;
+            if (wordInput && isMyTurn && !wordInput.disabled) {
+                const currentWord = wordInput.value.trim();
+                if (currentWord !== lastSentWord) {
+                    sendWordUpdate(currentWord);
+                    lastSentWord = currentWord;
+                }
+            }
+        },
+        
         game_started: (msg) => {
-            gameState = msg.gameState;
             showMessage('Game started!', 'success');
+            showScreen('gameScreen');
+            gameState = null;
         },
-        round_started: startRound,
-        word_submitted: onWordSubmitted,
-        player_submitted: onPlayerSubmitted,
-        round_ended: showRoundResults,
-        game_finished: showFinalResults,
+        
+        prompt: (msg) => {
+            displayPrompt(msg.prompt);
+            resetWordInput();
+        },
+        
+        // Modified: round_ended now just shows a brief message and continues
+        round_ended: (msg) => {
+            clearGameTimer();
+        },
+        
+        game_finished: (msg) => {
+            clearGameTimer();
+            displayFinalResults(msg);
+        },
+        
         room_reset: () => {
             showMessage('Room reset - ready for new game', 'info');
             showScreen('lobbyScreen');
+            gameState = null;
         },
+        
         settings_updated: (msg) => updateSettingsDisplay(msg.settings),
+        
         error: (msg) => showMessage(msg.message, 'error')
     };
 
@@ -80,35 +150,140 @@ function handleServerMessage(message) {
 }
 
 // Utility functions
-const $ = (id) => document.getElementById(id);
-const safeGet = (id) => {
-    const el = document.getElementById(id);
-    if (!el) console.warn(`Element with id '${id}' not found`);
-    return el;
-};
 const sendMessage = (message) => {
     if (ws && ws.readyState === WebSocket.OPEN) {
-        const stringifiedMessage = JSON.stringify(message);
-        console.log('Sending message to server:', stringifiedMessage);
-        const parsedMessage = JSON.parse(stringifiedMessage);
-        console.log('Parsed message:', parsedMessage);
-
-        ws.send(stringifiedMessage);
+        ws.send(JSON.stringify(message));
     } else {
         showMessage('Not connected to server', 'error');
     }
 };
 
-// Room management
+function sendWordUpdate(word) {
+    sendMessage({
+        type: 'word_update',
+        word: word
+    });
+}
+
+function updateGameDisplay(gameState) {
+    console.log(gameState); 
+    if (!gameState || !currentPlayer) return;
+    
+    const isMyTurn = gameState.turn === currentPlayer.id;
+    const turnIndicator = document.getElementById('turnIndicator');
+    const turnText = document.getElementById('turnText');
+    
+    if (turnIndicator && turnText) {
+        turnIndicator.classList.remove('hidden');
+        if (isMyTurn) {
+            turnText.textContent = "🎯 Your turn! Type a word quickly!";
+            turnIndicator.style.background = 'linear-gradient(135deg, #28a745, #20c997)';
+        } else {
+            const currentPlayerName = gameState.players.find(p => p.id === gameState.turn)?.name || 'Someone';
+            turnText.textContent = `⏳ ${currentPlayerName}'s turn...`;
+            turnIndicator.style.background = 'linear-gradient(135deg, #6c757d, #5a6268)';
+        }
+    }
+    
+    const gamePlayersEl = document.getElementById('gamePlayers');
+    if (gamePlayersEl && gameState.players) {
+        gamePlayersEl.innerHTML = gameState.players.map(player => `
+            <div class="player-card ${player.id === currentPlayer.id ? 'you' : ''} ${gameState.turn === player.id ? 'current-turn' : ''}">
+                <div class="player-name">
+                    ${player.name}${player.id === currentPlayer.id ? ' (You)' : ''}
+                    ${gameState.turn === player.id ? ' 🎯' : ''}
+                </div>
+                <div class="player-score">${player.score || 0} points</div>
+                <div class="player-word">${player.word || '...'}</div>
+                <span class="status-indicator ${gameState.turn === player.id ? 'your-turn' : 'waiting'}"></span>
+            </div>
+        `).join('');
+    }
+    
+    const wordInput = document.getElementById('wordInput');
+    const submitBtn = document.getElementById('submitBtn');
+    
+    if (wordInput && submitBtn) {
+        const shouldEnableInput = isMyTurn;
+        wordInput.disabled = !shouldEnableInput;
+        submitBtn.disabled = !shouldEnableInput;
+        
+        if (shouldEnableInput && wordInput !== document.activeElement) {
+            setTimeout(() => wordInput.focus(), 100);
+        }
+        
+        if (!shouldEnableInput && wordInput.value.trim()) {
+            wordInput.value = '';
+            lastSentWord = '';
+        }
+    }
+    
+    if (gameState.timeRemaining !== undefined) {
+        updateTimerDisplay(gameState.timeRemaining);
+    }
+    
+    const playerCountEl = document.getElementById('playerCount');
+    if (playerCountEl && gameState.players) {
+        playerCountEl.textContent = gameState.players.length;
+    }
+    
+    if (gameState.prompt) {
+        displayPrompt(gameState.prompt);
+    }
+}
+
+function displayPrompt(prompt) {
+    const gamePromptEl = document.getElementById('gamePrompt');
+    if (gamePromptEl && prompt) {
+        gamePromptEl.textContent = prompt;
+    }
+}
+
+function resetWordInput() {
+    const wordInput = document.getElementById('wordInput');
+    if (wordInput) {
+        wordInput.value = '';
+        lastSentWord = '';
+        wordInput.disabled = true;
+    }
+    
+    const submitBtn = document.getElementById('submitBtn');
+    if (submitBtn) {
+        submitBtn.disabled = true;
+    }
+}
+
+function updateTimerDisplay(timeRemaining) {
+    const timerEl = document.getElementById('gameTimer');
+    if (timerEl && timeRemaining !== undefined) {
+        const seconds = Math.ceil(timeRemaining / 100) / 10;
+        timerEl.textContent = Math.max(0, seconds);
+        
+        if (seconds <= 5 && seconds > 0) {
+            timerEl.style.color = '#dc3545';
+            timerEl.style.fontWeight = 'bold';
+        } else {
+            timerEl.style.color = '';
+            timerEl.style.fontWeight = '';
+        }
+    }
+}
+
+function clearGameTimer() {
+    if (gameTimer) {
+        clearInterval(gameTimer);
+        gameTimer = null;
+    }
+}
+
 async function createRoom() {
-    const playerNameEl = safeGet('playerName');
+    const playerNameEl = document.getElementById('playerName');
     if (!playerNameEl) return;
     
     const playerName = playerNameEl.value.trim();
     if (!playerName) return showMessage('Please enter your name', 'error');
     
     await connectWebSocket();
-    console.log('Creating room with player name:', playerName);
     setTimeout(() => sendMessage({
         type: 'create_room',
         playerName: playerName,
@@ -116,8 +291,8 @@ async function createRoom() {
 }
 
 function joinRoom() {
-    const playerNameEl = safeGet('playerName');
-    const roomIdEl = safeGet('roomIdInput');
+    const playerNameEl = document.getElementById('playerName');
+    const roomIdEl = document.getElementById('roomIdInput');
     if (!playerNameEl || !roomIdEl) return;
     
     const playerName = playerNameEl.value.trim();
@@ -134,18 +309,6 @@ function joinRoom() {
     }), 100);
 }
 
-function joinSpecificRoom(roomId) {
-    const playerNameEl = safeGet('playerName');
-    const roomIdEl = safeGet('roomIdInput');
-    if (!playerNameEl || !roomIdEl) return;
-    
-    const playerName = playerNameEl.value.trim();
-    if (!playerName) return showMessage('Please enter your name first', 'error');
-    
-    roomIdEl.value = roomId;
-    joinRoom();
-}
-
 function leaveRoom() {
     if (ws) ws.close();
     currentPlayer = null;
@@ -156,252 +319,135 @@ function leaveRoom() {
     showScreen('homeScreen');
 }
 
-// Game functions
 function startGame() {
     sendMessage({ type: 'start_game' });
 }
 
-function startRound(message) {
-    showScreen('gameScreen');
-    
-    const currentRoundEl = safeGet('currentRound');
-    const totalRoundsEl = safeGet('totalRounds');
-    const gamePromptEl = safeGet('gamePrompt');
-    const promptDifficultyEl = safeGet('promptDifficulty');
-    
-    if (currentRoundEl) currentRoundEl.textContent = message.round;
-    if (totalRoundsEl) totalRoundsEl.textContent = message.totalRounds;
-    if (gamePromptEl) gamePromptEl.textContent = message.prompt;
-    if (promptDifficultyEl) promptDifficultyEl.textContent = message.difficulty.toUpperCase();
-    
-    const wordInput = safeGet('wordInput');
-    const submitBtn = safeGet('submitBtn');
-    const submissionStatus = safeGet('submissionStatus');
-    const wordInputSection = safeGet('wordInputSection');
-    
-    if (wordInput) {
-        wordInput.value = '';
-        wordInput.disabled = false;
-        wordInput.focus();
-    }
-    if (submitBtn) submitBtn.disabled = false;
-    if (submissionStatus) submissionStatus.classList.add('hidden');
-    if (wordInputSection) wordInputSection.classList.remove('hidden');
-    
-    startGameTimer(message.timeLimit);
-}
-
 function submitWord() {
-    const wordInput = safeGet('wordInput');
-    if (!wordInput) return;
+    const wordInput = document.getElementById('wordInput');
+    if (!wordInput || wordInput.disabled) return;
     
     const word = wordInput.value.trim();
-    if (!word) return showMessage('Please enter a word', 'error');
+    if (!word) {
+        showMessage('Please enter a word', 'error');
+        return;
+    }
     
-    sendMessage({ type: 'submit_word', word: word });
-}
-
-function onWordSubmitted(message) {
-    const wordInput = safeGet('wordInput');
-    const submitBtn = safeGet('submitBtn');
-    const wordInputSection = safeGet('wordInputSection');
-    const submissionStatus = safeGet('submissionStatus');
-    const submissionCount = safeGet('submissionCount');
-    const totalPlayers = safeGet('totalPlayers');
+    if (!gameState || gameState.turn !== currentPlayer.id) {
+        showMessage('It\'s not your turn!', 'error');
+        return;
+    }
     
-    if (wordInput) wordInput.disabled = true;
+    sendMessage({
+        type: 'submit_word',
+        word: word
+    });
+    
+    wordInput.disabled = true;
+    const submitBtn = document.getElementById('submitBtn');
     if (submitBtn) submitBtn.disabled = true;
-    if (wordInputSection) wordInputSection.classList.add('hidden');
-    if (submissionStatus) submissionStatus.classList.remove('hidden');
-    if (submissionCount) submissionCount.textContent = message.submissionCount;
-    if (totalPlayers) totalPlayers.textContent = message.totalPlayers;
 }
 
-function onPlayerSubmitted(message) {
-    const submissionCount = safeGet('submissionCount');
-    if (submissionCount) submissionCount.textContent = message.submissionCount;
-    updatePlayerSubmissionStatus(message.playerName, true);
-}
-
-function showRoundResults(message) {
-    clearGameTimer();
-    showScreen('resultsScreen');
-    
-    const resultsRound = safeGet('resultsRound');
-    const resultsTableBody = safeGet('resultsTableBody');
-    const correctAnswerTags = safeGet('correctAnswerTags');
-    
-    if (resultsRound) resultsRound.textContent = message.round;
-    
-    if (resultsTableBody) {
-        resultsTableBody.innerHTML = message.results.map(result => `
-            <tr>
-                <td>${result.playerName}</td>
-                <td class="word-result ${result.isValid ? 'valid' : 'invalid'}">${result.word}</td>
-                <td>${result.isValid ? '✅' : '❌'}</td>
-                <td>${result.points}</td>
-            </tr>
-        `).join('');
-    }
-    
-    if (correctAnswerTags) {
-        correctAnswerTags.innerHTML = message.correctAnswers.map(answer => 
-            `<span class="answer-tag">${answer}</span>`
-        ).join('');
-    }
-    
-    updateLeaderboard(message.leaderboard, 'leaderboard');
-}
-
-function showFinalResults(message) {
-    clearGameTimer();
-    showScreen('finalResultsScreen');
-    updateLeaderboard(message.finalLeaderboard, 'finalLeaderboard');
-    
-    const winner = message.finalLeaderboard[0];
-    if (winner && winner.id === currentPlayer.id) {
-        showMessage('🎉 Congratulations! You won!', 'success');
-    }
-}
-
-function backToLobby() { showScreen('lobbyScreen'); }
-function backToHome() { leaveRoom(); }
-
-// Settings
 function updateSettings() {
-    const maxPlayersEl = safeGet('maxPlayers');
-    const turnTimeLimitEl = safeGet('turnTimeLimit');
-    const maxRoundsEl = safeGet('maxRounds');
-    const difficultyEl = safeGet('difficulty');
+    const maxPlayersEl = document.getElementById('maxPlayers');
+    const turnTimeLimitEl = document.getElementById('turnTimeLimit');
     
-    if (!maxPlayersEl || !turnTimeLimitEl || !maxRoundsEl || !difficultyEl) return;
+    if (!maxPlayersEl || !turnTimeLimitEl) return;
     
     const settings = {
         maxPlayers: parseInt(maxPlayersEl.value),
-        turnTimeLimit: parseInt(turnTimeLimitEl.value),
-        maxRounds: parseInt(maxRoundsEl.value),
-        difficulty: difficultyEl.value || null
+        turnTimeLimit: parseInt(turnTimeLimitEl.value) * 1000
     };
     sendMessage({ type: 'update_settings', settings });
 }
 
 function updateSettingsDisplay(settings) {
-    const maxPlayersEl = safeGet('maxPlayers');
-    const turnTimeLimitEl = safeGet('turnTimeLimit');
-    const maxRoundsEl = safeGet('maxRounds');
-    const difficultyEl = safeGet('difficulty');
+    const maxPlayersEl = document.getElementById('maxPlayers');
+    const turnTimeLimitEl = document.getElementById('turnTimeLimit');
     
     if (maxPlayersEl) maxPlayersEl.value = settings.maxPlayers;
-    if (turnTimeLimitEl) turnTimeLimitEl.value = settings.turnTimeLimit;
-    if (maxRoundsEl) maxRoundsEl.value = settings.maxRounds;
-    if (difficultyEl) difficultyEl.value = settings.difficulty || '';
+    if (turnTimeLimitEl) turnTimeLimitEl.value = settings.turnTimeLimit / 1000;
 }
 
-// Timer
-function startGameTimer(duration) {
-    clearGameTimer();
-    let timeLeft = Math.floor(duration / 1000);
-    const timerElement = safeGet('gameTimer');
-    if (!timerElement) return;
-    
-    const updateTimer = () => {
-        timerElement.textContent = timeLeft;
-        timerElement.classList.toggle('warning', timeLeft <= 10);
-        if (timeLeft <= 0) return clearGameTimer();
-        timeLeft--;
-    };
-    
-    updateTimer();
-    gameTimer = setInterval(updateTimer, 1000);
-}
-
-function clearGameTimer() {
-    if (gameTimer) {
-        clearInterval(gameTimer);
-        gameTimer = null;
-    }
-}
-
-// UI helpers
 function showScreen(screenId) {
     document.querySelectorAll('.screen').forEach(screen => screen.classList.remove('active'));
-    const targetScreen = safeGet(screenId);
+    const targetScreen = document.getElementById(screenId);
     if (targetScreen) targetScreen.classList.add('active');
 }
 
 function updateLobbyPlayers(players) {
-    const lobbyPlayersEl = safeGet('lobbyPlayers');
-    if (!lobbyPlayersEl) return;
+    const lobbyPlayersEl = document.getElementById('lobbyPlayers');
+    if (!lobbyPlayersEl || !players) return;
     
     lobbyPlayersEl.innerHTML = players.map(player => `
-        <div class="player-card ${player.id === currentPlayer.id ? 'you' : ''}">
-            <div class="player-name">${player.name}${player.id === currentPlayer.id ? ' (You)' : ''}</div>
+        <div class="player-card ${player.id === currentPlayer?.id ? 'you' : ''}">
+            <div class="player-name">${player.name}${player.id === currentPlayer?.id ? ' (You)' : ''}</div>
             <div class="player-score">Ready</div>
         </div>
     `).join('');
 }
 
-function addPlayerToLobby(player) {
-    const container = safeGet('lobbyPlayers');
-    if (!container) return;
+function displayFinalResults(results) {
+    showScreen('finalResultsScreen');
     
-    container.innerHTML += `
-        <div class="player-card">
-            <div class="player-name">${player.name}</div>
-            <div class="player-score">Ready</div>
-        </div>
-    `;
-}
-
-function updatePlayerSubmissionStatus(playerName, submitted) {
-    const playerCards = document.querySelectorAll('#gamePlayers .player-card');
-    playerCards.forEach(card => {
-        const nameElement = card.querySelector('.player-name');
-        if (nameElement && nameElement.textContent.includes(playerName)) {
-            card.classList.toggle('submitted', submitted);
-            const checkmark = card.querySelector('.checkmark');
-            if (submitted && !checkmark) {
-                card.insertAdjacentHTML('beforeend', '<div class="checkmark">✓</div>');
-            } else if (!submitted && checkmark) {
-                checkmark.remove();
-            }
+    if (results.finalLeaderboard) {
+        updateLeaderboard(results.finalLeaderboard, 'finalLeaderboard');
+        
+        const winner = results.finalLeaderboard[0];
+        if (winner && winner.id === currentPlayer?.id) {
+            showMessage('🎉 Congratulations! You won!', 'success');
         }
-    });
+    }
 }
 
 function updateLeaderboard(leaderboard, containerId) {
-    const container = safeGet(containerId);
-    if (!container) return;
+    const container = document.getElementById(containerId);
+    if (!container || !leaderboard) return;
     
     container.innerHTML = leaderboard.map((player, index) => `
-        <div class="player-card ${player.id === currentPlayer.id ? 'you' : ''}">
+        <div class="player-card ${player.id === currentPlayer?.id ? 'you' : ''}">
             <div class="player-name">
                 ${index < 3 ? ['🥇', '🥈', '🥉'][index] : `${index + 1}.`} 
-                ${player.name}${player.id === currentPlayer.id ? ' (You)' : ''}
+                ${player.name}${player.id === currentPlayer?.id ? ' (You)' : ''}
             </div>
             <div class="player-score">${player.score} points</div>
         </div>
     `).join('');
 }
 
+function backToLobby() {
+    sendMessage({ type: 'back_to_lobby' });
+}
+
+function backToHome() {
+    leaveRoom();
+}
+
 function showMessage(text, type = 'info') {
-    const messageContainer = safeGet('messageContainer');
+    const messageContainer = document.getElementById('messageContainer');
     if (!messageContainer) return;
     
     const message = document.createElement('div');
     message.className = `message ${type}`;
     message.textContent = text;
     messageContainer.appendChild(message);
-    setTimeout(() => message.remove(), 5000);
+    
+    setTimeout(() => {
+        if (message.parentNode) {
+            message.remove();
+        }
+    }, 5000);
 }
 
-// Event listeners
 document.addEventListener('DOMContentLoaded', () => {
     const enterKeyHandler = (inputId, action) => {
-        const input = safeGet(inputId);
+        const input = document.getElementById(inputId);
         if (input) {
             input.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') action();
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    action();
+                }
             });
         }
     };
@@ -410,17 +456,37 @@ document.addEventListener('DOMContentLoaded', () => {
     enterKeyHandler('roomIdInput', joinRoom);
     enterKeyHandler('wordInput', submitWord);
     
-    const roomIdInput = safeGet('roomIdInput');
+    const roomIdInput = document.getElementById('roomIdInput');
     if (roomIdInput) {
         roomIdInput.addEventListener('input', (e) => {
             e.target.value = e.target.value.toUpperCase();
         });
     }
     
-    const playerNameInput = safeGet('playerName');
-    if (playerNameInput) playerNameInput.focus();
+    const wordInput = document.getElementById('wordInput');
+    if (wordInput) {
+        wordInput.addEventListener('input', (e) => {
+            const currentWord = e.target.value.trim();
+            if (currentWord !== lastSentWord && !wordInput.disabled && 
+                gameState && gameState.turn === currentPlayer.id) {
+                sendWordUpdate(currentWord);
+                lastSentWord = currentWord;
+            }
+        });
+    }
+    
+    const playerNameInput = document.getElementById('playerName');
+    if (playerNameInput) {
+        playerNameInput.focus();
+    }
 });
 
 window.addEventListener('beforeunload', () => {
-    if (ws) ws.close();
+    if (ws) {
+        ws.close();
+    }
+});
+
+window.addEventListener('load', () => {
+    updateConnectionStatus('disconnected');
 });
