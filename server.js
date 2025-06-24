@@ -110,7 +110,7 @@ setInterval(() => {
     });
 }, 5000); // Every 5 seconds
 
-const PORT = 3000;
+const PORT = process.env.PORT || 80;
 server.listen(PORT, '0.0.0.0', async () => {
     console.log(`Word game server running on port ${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);

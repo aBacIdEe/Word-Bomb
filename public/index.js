@@ -7,9 +7,13 @@ let gameTimer = null;
 let lastSentWord = '';
 let pendingMessage = null;
 
-// WebSocket connection with proper timing handling
+// WebSocket connection with automatic URL detection
 async function connectWebSocket() {
-    const wsUrl = "ws://164.92.122.50:3000";
+    // Automatically build WebSocket URL from current page location
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.host; // includes port if not 80/443
+    const wsUrl = `${protocol}//${host}`;
+    
     console.log('Connecting to:', wsUrl);
     updateConnectionStatus('connecting');
     
@@ -325,10 +329,17 @@ async function createRoom() {
     const playerName = playerNameEl.value.trim();
     if (!playerName) return showMessage('Please enter your name', 'error');
     
+    // Read current values from form elements (with defaults)
+    const maxPlayersEl = document.getElementById('maxPlayers');
+    const turnTimeLimitEl = document.getElementById('turnTimeLimit');
+    
     const message = {
         type: 'create_room',
         playerName: playerName,
-        settings: {}
+        settings: {
+            maxPlayers: maxPlayersEl ? parseInt(maxPlayersEl.value) || 8 : 8,
+            turnTimeLimit: turnTimeLimitEl ? (parseInt(turnTimeLimitEl.value) || 30) * 1000 : 30000
+        }
     };
     
     // Use smart sending - will connect if needed
