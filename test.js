@@ -1,4 +1,6 @@
 // Run this in your browser console to test the complete flow:
+// imports
+const WebSocket = require('ws');
 
 console.log("🚀 Starting WebSocket debugging test...");
 
@@ -69,6 +71,3 @@ ws.onclose = function(event) {
     console.log("🔌 WebSocket closed:", event.code, event.reason);
     console.log("Final stats - Sent:", messagesSent, "Received:", messagesReceived);
 };
-
-// Keep reference for manual testing
-window.testWs = ws;
