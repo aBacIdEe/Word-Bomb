@@ -10,8 +10,6 @@ class MessageHandler {
   handleConnection(ws, req) {
     console.log("New WebSocket connection");
 
-    console.log(req);
-
     ws.on("message", (data) => {
       try {
         const message = JSON.parse(data);
@@ -85,56 +83,121 @@ class MessageHandler {
     }
   }
 
+  // Add this simple test method to verify WebSocket is working:
+  testWebSocketResponse(ws) {
+    console.log("🧪 Testing WebSocket response...");
+    try {
+      ws.send(JSON.stringify({
+        type: "test_response",
+        message: "WebSocket is working",
+        timestamp: Date.now()
+      }));
+      console.log("🧪 Test response sent successfully");
+    } catch (error) {
+      console.log("🧪 Test response failed:", error);
+    }
+  }
+
   handleCreateRoom(ws, message) {
-    console.log("Creating room with message:", message);
-    const { playerName, settings } = message;
-
-    if (!playerName || typeof playerName !== "string") {
-      return this.sendError(ws, "Player name required");
-    }
-
-    // Create new room with default settings
-    const roomId = this.roomManager.createRoom(settings);
-    const room = this.roomManager.getRoom(roomId);
+    console.log("🟢 START: handleCreateRoom called");
+    console.log("📥 Message received:", JSON.stringify(message));
     
-    if (!room) {
-      return this.sendError(ws, "Failed to create room");
+    try {
+      const { playerName, settings } = message;
+      console.log("🟢 STEP 1: Extracted playerName and settings");
+  
+      if (!playerName || typeof playerName !== "string") {
+        console.log("🔴 EARLY EXIT: Invalid player name");
+        return this.sendError(ws, "Player name required");
+      }
+      console.log("🟢 STEP 2: Player name validation passed");
+  
+      // Test WebSocket is still open before proceeding
+      if (ws.readyState !== 1) { // WebSocket.OPEN = 1
+        console.log("🔴 EARLY EXIT: WebSocket not open, readyState:", ws.readyState);
+        return;
+      }
+      console.log("🟢 STEP 3: WebSocket is open and ready");
+  
+      console.log("🟢 STEP 4: About to call roomManager.createRoom");
+      console.log("Settings being passed:", JSON.stringify(settings));
+      
+      // This was the original bottleneck - let's see if it's still hanging here
+      const roomId = this.roomManager.createRoom(settings);
+      console.log("🟢 STEP 5: roomManager.createRoom returned:", roomId);
+  
+      const room = this.roomManager.getRoom(roomId);
+      console.log("🟢 STEP 6: Got room object:", room ? "exists" : "null");
+      
+      if (!room) {
+        console.log("🔴 EARLY EXIT: Room creation failed");
+        return this.sendError(ws, "Failed to create room");
+      }
+  
+      console.log("🟢 STEP 7: About to generate player ID");
+      const playerId = generatePlayerId();
+      console.log("🟢 STEP 8: Generated player ID:", playerId);
+  
+      console.log("🟢 STEP 9: About to add player to room");
+      const addResult = room.addPlayer(playerId, ws);
+      console.log("🟢 STEP 10: Add player result:", JSON.stringify(addResult));
+      
+      if (!addResult.success) {
+        console.log("🔴 EARLY EXIT: Failed to add player to room");
+        return this.sendError(ws, addResult.error);
+      }
+  
+      console.log("🟢 STEP 11: About to store connection info");
+      // Store connection info
+      this.playerConnections.set(ws, {
+        playerId: playerId,
+        roomId: roomId,
+        playerName: playerName
+      });
+      console.log("🟢 STEP 12: Connection info stored");
+  
+      console.log("🟢 STEP 13: About to set player name");
+      // Set player name in room
+      const player = room.players.get(playerId);
+      if (player) {
+        player.name = playerName;
+        console.log("🟢 STEP 14: Player name set successfully");
+      } else {
+        console.log("🔴 WARNING: Player object not found in room");
+      }
+  
+      console.log("🟢 STEP 15: About to prepare response data");
+      const responseData = {
+        type: "room_joined",
+        roomId: roomId,
+        playerId: playerId,
+        isCreator: true,
+        players: Array.from(room.players.values()).map(p => ({
+          id: playerId,
+          name: playerName
+        }))
+      };
+      console.log("🟢 STEP 16: Response data prepared:", JSON.stringify(responseData));
+  
+      console.log("🟢 STEP 17: About to send response");
+      console.log("WebSocket readyState before send:", ws.readyState);
+      
+      // Send room joined confirmation
+      ws.send(JSON.stringify(responseData));
+      console.log("🟢 STEP 18: Response sent successfully!");
+  
+      console.log(`🎉 SUCCESS: Room ${roomId} created by player ${playerName} (${playerId})`);
+  
+    } catch (error) {
+      console.log("🔴 EXCEPTION in handleCreateRoom:", error);
+      console.log("🔴 Stack trace:", error.stack);
+      
+      try {
+        this.sendError(ws, "Server error during room creation");
+      } catch (sendError) {
+        console.log("🔴 Failed to send error message:", sendError);
+      }
     }
-
-    // Generate player ID and add to room
-    const playerId = generatePlayerId();
-    const addResult = room.addPlayer(playerId, ws);
-    
-    if (!addResult.success) {
-      return this.sendError(ws, addResult.error);
-    }
-
-    // Store connection info
-    this.playerConnections.set(ws, {
-      playerId: playerId,
-      roomId: roomId,
-      playerName: playerName
-    });
-
-    // Set player name in room
-    const player = room.players.get(playerId);
-    if (player) {
-      player.name = playerName;
-    }
-
-    // Send room joined confirmation
-    ws.send(JSON.stringify({
-      type: "room_joined",
-      roomId: roomId,
-      playerId: playerId,
-      isCreator: true,
-      players: Array.from(room.players.values()).map(p => ({
-        id: playerId,
-        name: playerName
-      }))
-    }));
-
-    console.log(`Room ${roomId} created by player ${playerName} (${playerId})`);
   }
 
   handleJoinRoom(ws, message) {
@@ -561,18 +624,27 @@ class MessageHandler {
     });
   }
 
-  sendError(ws, errorMessage) {
-    if (ws && ws.readyState === 1) { // WebSocket.OPEN
-      try {
-        ws.send(JSON.stringify({
-          type: "error",
-          message: errorMessage
-        }));
-      } catch (error) {
-        console.log("Error sending error message:", error);
-      }
+  // Also add debugging to your sendError method:
+sendError(ws, errorMessage) {
+  console.log("🔴 sendError called with:", errorMessage);
+  console.log("🔴 WebSocket readyState:", ws.readyState);
+  
+  if (ws && ws.readyState === 1) { // WebSocket.OPEN
+    try {
+      const errorResponse = JSON.stringify({
+        type: "error",
+        message: errorMessage
+      });
+      console.log("🔴 Sending error response:", errorResponse);
+      ws.send(errorResponse);
+      console.log("🔴 Error response sent successfully");
+    } catch (error) {
+      console.log("🔴 Exception in sendError:", error);
     }
+  } else {
+    console.log("🔴 Cannot send error - WebSocket not open");
   }
+}
 
   // Helper method to get player info from WebSocket
   getPlayerInfo(ws) {
