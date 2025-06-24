@@ -8,11 +8,11 @@ let lastSentWord = '';
 
 // WebSocket connection with status indicator
 async function connectWebSocket() {
-    console.log('Connecting to:', "ws://164.92.122.50");
+    console.log('Connecting to:', "ws://164.92.122.50:80");
     updateConnectionStatus('connecting');
     
     try {
-        ws = new WebSocket("ws://164.92.122.50");
+        ws = new WebSocket("ws://164.92.122.50:80");
         
         ws.onopen = () => {
             console.log("onopen happened")
