@@ -267,10 +267,11 @@ class GameRoom {
 
   async startNewRound() {
     const playerArray = Array.from(this.players.keys());
+    this.currentRound++;
     while (playerArray[this.currentRound % playerArray.length].lives <= 0) {
         this.currentRound++;
     }
-    this.currentTurn = playerArray[this.currentRound];
+    this.currentTurn = playerArray[this.currentRound % playerArray.length];
     
     // Record when the turn started
     this.turnStartTime = Date.now();
