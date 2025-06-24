@@ -222,7 +222,7 @@ function updateGameDisplay(gameState) {
     if (turnIndicator && turnText) {
         turnIndicator.classList.remove('hidden');
         if (isMyTurn) {
-            turnText.textContent = "🎯 Your turn! Type a word quickly!";
+            turnText.textContent = "It's your turn!";
             turnIndicator.style.background = 'linear-gradient(135deg, #28a745, #20c997)';
         } else {
             const currentPlayerName = gameState.players.find(p => p.id === gameState.turn)?.name || 'Someone';
@@ -237,9 +237,8 @@ function updateGameDisplay(gameState) {
             <div class="player-card ${player.id === currentPlayer.id ? 'you' : ''} ${gameState.turn === player.id ? 'current-turn' : ''}">
                 <div class="player-name">
                     ${player.name}${player.id === currentPlayer.id ? ' (You)' : ''}
-                    ${gameState.turn === player.id ? ' 🎯' : ''}
                 </div>
-                <div class="player-score">${player.score || 0} points</div>
+                <div class="player-lives">${player.lives || 0} lives</div>
                 <div class="player-word">${player.word || '...'}</div>
                 <span class="status-indicator ${gameState.turn === player.id ? 'your-turn' : 'waiting'}"></span>
             </div>
@@ -266,11 +265,6 @@ function updateGameDisplay(gameState) {
     
     if (gameState.timeRemaining !== undefined) {
         updateTimerDisplay(gameState.timeRemaining);
-    }
-    
-    const playerCountEl = document.getElementById('playerCount');
-    if (playerCountEl && gameState.players) {
-        playerCountEl.textContent = gameState.players.length;
     }
     
     if (gameState.prompt) {
@@ -440,7 +434,7 @@ function updateLobbyPlayers(players) {
     lobbyPlayersEl.innerHTML = players.map(player => `
         <div class="player-card ${player.id === currentPlayer?.id ? 'you' : ''}">
             <div class="player-name">${player.name}${player.id === currentPlayer?.id ? ' (You)' : ''}</div>
-            <div class="player-score">Ready</div>
+            <div class="player-lives">Ready</div>
         </div>
     `).join('');
 }
@@ -468,7 +462,7 @@ function updateLeaderboard(leaderboard, containerId) {
                 ${index < 3 ? ['🥇', '🥈', '🥉'][index] : `${index + 1}.`} 
                 ${player.name}${player.id === currentPlayer?.id ? ' (You)' : ''}
             </div>
-            <div class="player-score">${player.score} points</div>
+            <div class="player-lives">${player.lives} points</div>
         </div>
     `).join('');
 }

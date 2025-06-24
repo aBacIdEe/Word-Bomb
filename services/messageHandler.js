@@ -681,9 +681,9 @@ class MessageHandler {
       room.rounds.length = 0;
     }
     
-    // Reset all player scores and words
+    // Reset all player lives and words
     room.players.forEach(player => {
-      player.score = 0;
+      player.lives = 3;
       player.word = "";
       player.ready = false; // Reset ready state if it exists
       player.hasSubmitted = false; // Reset submission state if it exists

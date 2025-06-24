@@ -61,26 +61,23 @@
                         <input type="number" id="maxPlayers" min="1" max="20" value="8">
                     </div>
                     <div class="input-group">
-                        <label for="turnTimeLimit">Turn Time Limit (.1-120 seconds)</label>
+                        <label for="turnTimeLimit">Turn Time Limit (1-120 seconds)</label>
                         <input type="number" id="turnTimeLimit" placeholder="Enter seconds">
                     </div>
                     <div class="text-center">
-                        <button class="btn" onclick="updateSettings()">💾 Update Settings</button>
+                        <button class="btn" onclick="updateSettings()">Update Settings</button>
                     </div>
                 </div>
 
                 <div class="text-center">
-                    <button id="startGameBtn" class="btn hidden" onclick="startGame()">🚀 Start Game</button>
+                    <button id="startGameBtn" class="btn hidden" onclick="startGame()">Start Game</button>
                 </div>
             </div>
 
             <!-- Game Screen -->
             <div id="gameScreen" class="screen">
                 <div class="game-header">
-                    <div class="game-info">
-                        <span>👥 <span id="playerCount">0</span> Players</span>
-                    </div>
-                    <div class="timer" id="gameTimer">30</div>
+                    <div class="timer" id="gameTimer"></div>
                 </div>
 
                 <div id="turnIndicator" class="turn-indicator hidden">
@@ -94,7 +91,7 @@
                 <div id="wordInputSection" class="text-center">
                     <input type="text" id="wordInput" class="word-input" placeholder="Type your word here..." maxlength="50">
                     <br>
-                    <button class="btn" onclick="submitWord()" id="submitBtn">📝 Submit Word</button>
+                    <button class="btn" onclick="submitWord()" id="submitBtn">Submit</button>
                 </div>
 
                 <div class="players-grid" id="gamePlayers"></div>

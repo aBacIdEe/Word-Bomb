@@ -2,7 +2,7 @@ class GameRoom {
   constructor(id, wordList = [], settings = this.getDefaultSettings()) {
     this.id = id; // Unique identifier for the room
     this.creator = null; // Player ID of the creator of the room
-    this.players = new Map(); // Map of playerId to player object { score, word, ws, order, name }
+    this.players = new Map(); // Map of playerId to player object { lives, word, ws, order, name }
     this.settings = settings; // Default settings for the game room
     this.status = 'waiting'; // 'waiting', 'active', 'finished'
     this.createdAt = new Date(); // Timestamp when the room was created
@@ -24,24 +24,9 @@ class GameRoom {
 
   getDefaultSettings() {
     return {
-      maxPlayers: 8,
-      turnTimeLimit: 30000, // 30 seconds per round
+      maxPlayers: 5,
+      turnTimeLimit: 10000, // 10 seconds per round
     };
-  }
-
-  // Helper function to find the maximum value in a collection
-  getMaxPlayer() {
-    let maxScore = -1;
-    let maxPlayer = null;
-    
-    this.players.forEach((player, playerId) => {
-      if (player.score > maxScore) {
-        maxScore = player.score;
-        maxPlayer = { ...player, id: playerId };
-      }
-    });
-    
-    return maxPlayer;
   }
 
   // Helper function to calculate remaining time
@@ -60,7 +45,7 @@ class GameRoom {
     return Array.from(this.players.entries()).map(([playerId, player]) => ({
       id: playerId,
       name: player.name || playerId,
-      score: player.score,
+      lives: player.lives,
       word: player.word
     }));
   }
@@ -101,7 +86,7 @@ class GameRoom {
       player: {
         id: newPlayerId,
         name: newPlayer.name || newPlayerId,
-        score: newPlayer.score
+        lives: newPlayer.lives
       },
       players: this.getPlayersArray()
     };
@@ -161,15 +146,16 @@ class GameRoom {
   }
 
   broadcastGameFinished() {
-    const winner = this.getMaxPlayer();
+    // Determine the winner based on lives
+    const winner = Array.from(this.players.values()).find(player => player.lives > 0);
     const message = {
       type: 'game_finished',
       winner: winner ? {
         id: winner.id,
         name: winner.name || winner.id,
-        score: winner.score
+        lives: winner.lives
       } : null,
-      finalScores: this.getPlayersArray().sort((a, b) => b.score - a.score)
+      finalLives: this.getPlayersArray().sort((a, b) => b.lives - a.lives)
     };
     this.broadcastToRoom(message);
   }
@@ -210,7 +196,7 @@ class GameRoom {
     }
     
     this.players.set(playerId, { 
-      score: 0, 
+      lives: 3, 
       word: "", 
       ws: ws, 
       name: playerName || playerId 
@@ -280,10 +266,11 @@ class GameRoom {
   }
 
   async startNewRound() {
-    this.currentRound += 1;
-    const currentTurnNumber = (this.currentRound - 1) % this.players.size;
     const playerArray = Array.from(this.players.keys());
-    this.currentTurn = playerArray[currentTurnNumber];
+    while (playerArray[this.currentRound % playerArray.length].lives <= 0) {
+        this.currentRound++;
+    }
+    this.currentTurn = playerArray[this.currentRound];
     
     // Record when the turn started
     this.turnStartTime = Date.now();
@@ -342,17 +329,18 @@ class GameRoom {
       clearTimeout(this.turnTimer);
       this.turnTimer = null;
       
-      // Award point to current player if they submitted a word
-      if (roundResults.submittedWord) {
-        this.players.get(this.currentTurn).score += 1;
+      // Lose life for not submitting a word
+      if (!roundResults.submittedWord) {
+        this.players.get(this.currentTurn).lives -= 1;
       }
     }
     
-    // Broadcast round ended
-    this.broadcastRoundEnded(roundResults);
+    // // Broadcast round ended
+    // this.broadcastRoundEnded(roundResults);
     
-    const maxPlayer = this.getMaxPlayer();
-    if (maxPlayer && maxPlayer.score >= 10) {
+    // end game if only one player left with lives
+    const alivePlayers = Array.from(this.players.values()).filter(player => player.lives > 0);
+    if (alivePlayers.length <= 1) {
       this.endGame();
       return;
     }
@@ -360,7 +348,7 @@ class GameRoom {
     // Start next round if game isn't over
     setTimeout(() => {
       this.startNewRound();
-    }, 100); // 2 second delay between rounds
+    }, 100); // .1 second delay between rounds
   }
 
   // Handles the end of the game
@@ -392,9 +380,9 @@ class GameRoom {
       this.turnTimer = null;
     }
     
-    // Reset player scores
+    // Reset player lives
     this.players.forEach((player) => {
-      player.score = 0;
+      player.lives = 3;
       player.word = "";
     });
     
