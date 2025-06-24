@@ -31,6 +31,17 @@ class MessageHandler {
       console.log("WebSocket error:", error);
       this.handlePlayerDisconnect(ws);
     });
+
+    try {
+      ws.send(JSON.stringify({
+        type: "connected",
+        message: "Connection established",
+        timestamp: new Date().toISOString()
+      }));
+      console.log("✅ Sent connection confirmation");
+    } catch (error) {
+      console.error("❌ Failed to send connection confirmation:", error);
+    }
   }
 
   handleMessage(ws, message) {
