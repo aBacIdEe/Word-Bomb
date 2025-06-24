@@ -1,5 +1,3 @@
-require('dotenv').config()
-
 let ws = null;
 let currentPlayer = null;
 let currentRoom = null;
@@ -10,11 +8,11 @@ let lastSentWord = '';
 
 // WebSocket connection with status indicator
 async function connectWebSocket() {
-    console.log('Connecting to:', process.env.WS_URL);
+    console.log('Connecting to:', "wss://164.92.122.50");
     updateConnectionStatus('connecting');
     
     try {
-        ws = new WebSocket(process.env.WS_URL);
+        ws = new WebSocket("wss://164.92.122.50");
         
         ws.onopen = () => {
             updateConnectionStatus('connected');
