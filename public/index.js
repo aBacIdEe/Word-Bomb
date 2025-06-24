@@ -12,7 +12,7 @@ async function connectWebSocket() {
     updateConnectionStatus('connecting');
     
     try {
-        ws = new WebSocket("ws://164.92.122.50:80");
+        ws = new WebSocket("ws://localhost:3000");
         
         ws.onopen = () => {
             console.log("onopen happened")
