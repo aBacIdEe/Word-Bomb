@@ -8,19 +8,21 @@ let lastSentWord = '';
 
 // WebSocket connection with status indicator
 async function connectWebSocket() {
-    console.log('Connecting to:', "wss://164.92.122.50");
+    console.log('Connecting to:', "ws://164.92.122.50");
     updateConnectionStatus('connecting');
     
     try {
-        ws = new WebSocket("wss://164.92.122.50");
+        ws = new WebSocket("ws://164.92.122.50");
         
         ws.onopen = () => {
+            console.log("onopen happened")
             updateConnectionStatus('connected');
             showMessage('Connected to server', 'success');
         };
         
         ws.onmessage = (event) => {
             try {
+                console.log("onmessage happened")
                 const message = JSON.parse(event.data);
                 handleServerMessage(message);
             } catch (e) {
@@ -29,12 +31,14 @@ async function connectWebSocket() {
         };
         
         ws.onclose = () => {
+            console.log("onclose happened")
             updateConnectionStatus('disconnected');
             showMessage('Disconnected from server', 'error');
             setTimeout(connectWebSocket, 3000);
         };
         
         ws.onerror = (error) => {
+            console.log("onerror happened")
             updateConnectionStatus('disconnected');
             showMessage('Connection error', 'error');
             console.error('WebSocket error:', error);
