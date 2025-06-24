@@ -286,6 +286,7 @@ async function createRoom() {
     setTimeout(() => sendMessage({
         type: 'create_room',
         playerName: playerName,
+        settings: {}  // Add this line!
     }), 100);
 }
 

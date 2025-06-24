@@ -8,38 +8,121 @@ class MessageHandler {
   }
 
   handleConnection(ws, req) {
-    console.log("New WebSocket connection");
-
+    console.log("🔗 [CONNECTION] handleConnection called");
+    console.log("🔗 [CONNECTION] WebSocket readyState:", ws.readyState);
+  
     ws.on("message", (data) => {
+      console.log("\n📨 [MESSAGE] Raw message received");
+      console.log("📨 [MESSAGE] Data type:", typeof data);
+      console.log("📨 [MESSAGE] Data length:", data.length);
+      console.log("📨 [MESSAGE] Raw data:", data.toString());
+      
       try {
         const message = JSON.parse(data);
-        console.log("Parsed message:", message);
+        console.log("✅ [PARSE] JSON parse successful");
+        console.log("✅ [PARSE] Parsed message:", JSON.stringify(message, null, 2));
+        console.log("✅ [PARSE] Message type:", `"${message.type}"`);
+        console.log("✅ [PARSE] Message type length:", message.type ? message.type.length : 'undefined');
+        
+        console.log("🚀 [ROUTING] About to call handleMessage...");
         this.handleMessage(ws, message);
+        console.log("✅ [ROUTING] handleMessage call completed");
+        
       } catch (error) {
-        console.log("JSON parse error:", error);
+        console.log("❌ [PARSE] JSON parse error:", error);
+        console.log("❌ [PARSE] Failed data:", data.toString());
         this.sendError(ws, "Invalid JSON message");
       }
     });
-
-    ws.on("close", () => {
+  
+    ws.on("close", (code, reason) => {
+      console.log("🔌 [CONNECTION] Connection closed:", code, reason);
       this.handlePlayerDisconnect(ws);
     });
-
+  
     ws.on("error", (error) => {
-      console.log("WebSocket error:", error);
+      console.log("❌ [CONNECTION] WebSocket error:", error);
       this.handlePlayerDisconnect(ws);
     });
-
-    try {
-      ws.send(JSON.stringify({
-        type: "connected",
-        message: "Connection established",
-        timestamp: new Date().toISOString()
-      }));
-      console.log("✅ Sent connection confirmation");
-    } catch (error) {
-      console.error("❌ Failed to send connection confirmation:", error);
+    
+    console.log("✅ [CONNECTION] Event listeners attached");
+  }
+  
+  // 2. Replace your handleMessage method with this version:
+  handleMessage(ws, message) {
+    console.log("\n📋 [HANDLER] handleMessage called");
+    console.log("📋 [HANDLER] Received message type:", `"${message.type}"`);
+    console.log("📋 [HANDLER] Message type comparison test:");
+    console.log("📋 [HANDLER]   message.type === 'create_room':", message.type === 'create_room');
+    console.log("📋 [HANDLER]   message.type === \"create_room\":", message.type === "create_room");
+    console.log("📋 [HANDLER] Full message object:", JSON.stringify(message));
+  
+    // Test each case explicitly
+    if (message.type === "create_room") {
+      console.log("🎯 [ROUTING] MATCHED: create_room");
+      console.log("🎯 [ROUTING] About to call handleCreateRoom...");
+      try {
+        this.handleCreateRoom(ws, message);
+        console.log("🎯 [ROUTING] handleCreateRoom call completed");
+      } catch (error) {
+        console.log("💥 [ROUTING] Exception in handleCreateRoom:", error);
+      }
+      return;
     }
+  
+    if (message.type === "join_room") {
+      console.log("🎯 [ROUTING] MATCHED: join_room");
+      this.handleJoinRoom(ws, message);
+      return;
+    }
+  
+    if (message.type === "start_game") {
+      console.log("🎯 [ROUTING] MATCHED: start_game");
+      this.handleStartGame(ws, message);
+      return;
+    }
+  
+    if (message.type === "submit_word") {
+      console.log("🎯 [ROUTING] MATCHED: submit_word");
+      this.handleSubmitWord(ws, message);
+      return;
+    }
+  
+    if (message.type === "word_update") {
+      console.log("🎯 [ROUTING] MATCHED: word_update");
+      this.handleWordUpdate(ws, message);
+      return;
+    }
+  
+    if (message.type === "update_settings") {
+      console.log("🎯 [ROUTING] MATCHED: update_settings");
+      this.handleUpdateSettings(ws, message);
+      return;
+    }
+  
+    if (message.type === "continue_game") {
+      console.log("🎯 [ROUTING] MATCHED: continue_game");
+      this.handleContinueGame(ws, message);
+      return;
+    }
+  
+    if (message.type === "back_to_lobby") {
+      console.log("🎯 [ROUTING] MATCHED: back_to_lobby");
+      this.handleBackToLobby(ws, message);
+      return;
+    }
+  
+    // If we get here, no case matched
+    console.log("❓ [ROUTING] NO MATCH FOUND for message type:", `"${message.type}"`);
+    console.log("❓ [ROUTING] Available types: create_room, join_room, start_game, submit_word, word_update, update_settings, continue_game, back_to_lobby");
+    console.log("❓ [ROUTING] Message type character codes:", Array.from(message.type || '').map(c => c.charCodeAt(0)));
+    
+    this.sendError(ws, `Unknown message type: "${message.type}"`);
+  }
+
+  testCreateRoom() {
+    console.log("🧪 [TEST] handleCreateRoom method exists:", typeof this.handleCreateRoom === 'function');
+    console.log("🧪 [TEST] All methods:", Object.getOwnPropertyNames(Object.getPrototypeOf(this)).filter(name => name.startsWith('handle')));
   }
 
   handleMessage(ws, message) {
