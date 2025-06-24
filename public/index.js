@@ -5,79 +5,73 @@ let isCreator = false;
 let gameState = null;
 let gameTimer = null;
 let lastSentWord = '';
+let pendingMessage = null;
 
-// Add debugging flag
-const DEBUG = true;
-function debugLog(message, ...args) {
-    if (DEBUG) {
-        console.log(`🔍 [FRONTEND] ${message}`, ...args);
-    }
-}
-
-// WebSocket connection with status indicator
+// WebSocket connection with proper timing handling
 async function connectWebSocket() {
     const wsUrl = "ws://164.92.122.50:3000";
-    debugLog('Starting WebSocket connection to:', wsUrl);
+    console.log('Connecting to:', wsUrl);
     updateConnectionStatus('connecting');
     
     try {
-        debugLog('Creating new WebSocket instance...');
         ws = new WebSocket(wsUrl);
-        debugLog('WebSocket instance created, readyState:', ws.readyState);
+        
+        // Optional connection timeout (10 seconds is very safe)
+        const connectionTimeout = setTimeout(() => {
+            if (ws.readyState === WebSocket.CONNECTING) {
+                console.log('Connection timeout after 10 seconds');
+                ws.close();
+                showMessage('Connection timeout - please try again', 'error');
+            }
+        }, 10000);
         
         ws.onopen = () => {
-            debugLog('🎉 WebSocket ONOPEN event fired');
-            debugLog('WebSocket readyState:', ws.readyState);
-            debugLog('WebSocket URL:', ws.url);
-            debugLog('WebSocket protocol:', ws.protocol);
+            clearTimeout(connectionTimeout);
+            console.log("WebSocket connected successfully");
             updateConnectionStatus('connected');
             showMessage('Connected to server', 'success');
+            
+            // Send any pending message
+            if (pendingMessage) {
+                console.log('Sending pending message:', pendingMessage);
+                sendMessage(pendingMessage);
+                pendingMessage = null;
+            }
         };
         
         ws.onmessage = (event) => {
-            debugLog('📥 WebSocket ONMESSAGE event fired');
-            debugLog('Raw event data:', event.data);
-            debugLog('Event type:', event.type);
-            debugLog('Event target readyState:', event.target.readyState);
-            
             try {
+                console.log("Received message:", event.data);
                 const message = JSON.parse(event.data);
-                debugLog('✅ JSON parse successful:', message);
                 handleServerMessage(message);
             } catch (e) {
-                debugLog('❌ JSON parse failed:', e);
-                debugLog('Failed data:', event.data);
                 console.error('Failed to parse message:', e);
             }
         };
         
         ws.onclose = (event) => {
-            debugLog('🔌 WebSocket ONCLOSE event fired');
-            debugLog('Close code:', event.code);
-            debugLog('Close reason:', event.reason);
-            debugLog('Was clean:', event.wasClean);
-            debugLog('WebSocket readyState:', ws.readyState);
+            clearTimeout(connectionTimeout);
+            console.log("WebSocket closed:", event.code, event.reason);
             updateConnectionStatus('disconnected');
             showMessage('Disconnected from server', 'error');
+            
+            // Clear any pending message on disconnect
+            pendingMessage = null;
+            
+            // Reconnect after 3 seconds
             setTimeout(connectWebSocket, 3000);
         };
         
         ws.onerror = (error) => {
-            debugLog('❌ WebSocket ONERROR event fired');
-            debugLog('Error object:', error);
-            debugLog('Error type:', error.type);
-            debugLog('WebSocket readyState:', ws ? ws.readyState : 'ws is null');
+            clearTimeout(connectionTimeout);
+            console.log("WebSocket error:", error);
             updateConnectionStatus('disconnected');
             showMessage('Connection error', 'error');
             console.error('WebSocket error:', error);
         };
         
-        debugLog('✅ All WebSocket event handlers attached');
-        
     } catch (error) {
-        debugLog('💥 Exception creating WebSocket:', error);
-        debugLog('Error name:', error.name);
-        debugLog('Error message:', error.message);
+        console.error('Failed to create WebSocket:', error);
         updateConnectionStatus('disconnected');
         showMessage('Failed to connect', 'error');
         setTimeout(connectWebSocket, 3000);
@@ -86,44 +80,28 @@ async function connectWebSocket() {
 
 // Update connection status indicator
 function updateConnectionStatus(status) {
-    debugLog('Updating connection status to:', status);
     const statusEl = document.getElementById('connectionStatus');
     if (statusEl) {
         statusEl.className = `connection-status ${status}`;
         statusEl.textContent = status.charAt(0).toUpperCase() + status.slice(1);
-        debugLog('Status element updated successfully');
-    } else {
-        debugLog('❌ Status element not found');
     }
 }
 
 // Message handling - server-driven architecture
 function handleServerMessage(message) {
-    debugLog('🔄 handleServerMessage called with:', message);
-    debugLog('Message type:', message.type);
+    console.log('Received:', message);
     
     const handlers = {
         room_joined: (msg) => {
-            debugLog('📍 Handling room_joined message:', msg);
             const playerNameEl = document.getElementById('playerName');
-            if (!playerNameEl) {
-                debugLog('❌ playerName element not found');
-                return;
-            }
+            if (!playerNameEl) return;
             
             currentPlayer = { id: msg.playerId, name: playerNameEl.value };
             currentRoom = msg.roomId;
             isCreator = msg.isCreator;
             
-            debugLog('✅ Player state updated:', { currentPlayer, currentRoom, isCreator });
-            
             const roomIdEl = document.getElementById('currentRoomId');
-            if (roomIdEl) {
-                roomIdEl.textContent = msg.roomId;
-                debugLog('✅ Room ID display updated');
-            } else {
-                debugLog('❌ currentRoomId element not found');
-            }
+            if (roomIdEl) roomIdEl.textContent = msg.roomId;
             
             updateLobbyPlayers(msg.players);
             showScreen('lobbyScreen');
@@ -131,35 +109,22 @@ function handleServerMessage(message) {
             if (isCreator) {
                 const settingsEl = document.getElementById('gameSettings');
                 const startBtnEl = document.getElementById('startGameBtn');
-                if (settingsEl) {
-                    settingsEl.classList.remove('hidden');
-                    debugLog('✅ Game settings shown');
-                } else {
-                    debugLog('❌ gameSettings element not found');
-                }
-                if (startBtnEl) {
-                    startBtnEl.classList.remove('hidden');
-                    debugLog('✅ Start button shown');
-                } else {
-                    debugLog('❌ startGameBtn element not found');
-                }
+                if (settingsEl) settingsEl.classList.remove('hidden');
+                if (startBtnEl) startBtnEl.classList.remove('hidden');
             }
         },
         
         player_joined: (msg) => {
-            debugLog('📍 Handling player_joined message:', msg);
             showMessage(`${msg.player.name} joined the game`, 'info');
             updateLobbyPlayers(msg.players);
         },
         
         player_left: (msg) => {
-            debugLog('📍 Handling player_left message:', msg);
             showMessage(`${msg.playerName} left the game`, 'info');
             updateLobbyPlayers(msg.players);
         },
         
         game_summary: (msg) => {
-            debugLog('📍 Handling game_summary message:', msg);
             gameState = msg;
             updateGameDisplay(msg);
             
@@ -175,275 +140,400 @@ function handleServerMessage(message) {
         },
         
         game_started: (msg) => {
-            debugLog('📍 Handling game_started message:', msg);
             showMessage('Game started!', 'success');
             showScreen('gameScreen');
             gameState = null;
         },
         
         prompt: (msg) => {
-            debugLog('📍 Handling prompt message:', msg);
             displayPrompt(msg.prompt);
             resetWordInput();
         },
         
         round_ended: (msg) => {
-            debugLog('📍 Handling round_ended message:', msg);
             clearGameTimer();
         },
         
         game_finished: (msg) => {
-            debugLog('📍 Handling game_finished message:', msg);
             clearGameTimer();
             displayFinalResults(msg);
         },
         
         room_reset: () => {
-            debugLog('📍 Handling room_reset message');
             showMessage('Room reset - ready for new game', 'info');
             showScreen('lobbyScreen');
             gameState = null;
         },
         
-        settings_updated: (msg) => {
-            debugLog('📍 Handling settings_updated message:', msg);
-            updateSettingsDisplay(msg.settings);
-        },
+        settings_updated: (msg) => updateSettingsDisplay(msg.settings),
         
-        error: (msg) => {
-            debugLog('📍 Handling error message:', msg);
-            showMessage(msg.message, 'error');
-        }
+        error: (msg) => showMessage(msg.message, 'error')
     };
 
     if (handlers[message.type]) {
-        debugLog(`✅ Found handler for message type: ${message.type}`);
-        try {
-            handlers[message.type](message);
-            debugLog(`✅ Handler completed for: ${message.type}`);
-        } catch (error) {
-            debugLog(`💥 Exception in handler for ${message.type}:`, error);
-        }
-    } else {
-        debugLog(`❌ No handler found for message type: ${message.type}`);
-        debugLog('Available handlers:', Object.keys(handlers));
+        handlers[message.type](message);
     }
 }
 
-// Utility functions
+// Smart message sending with connection handling
 const sendMessage = (message) => {
-    debugLog('📤 sendMessage called with:', message);
-    debugLog('WebSocket state check - ws exists:', !!ws);
-    
-    if (ws) {
-        debugLog('WebSocket readyState:', ws.readyState);
-        debugLog('WebSocket.OPEN constant:', WebSocket.OPEN);
-        debugLog('Ready state comparison:', ws.readyState === WebSocket.OPEN);
-    }
+    console.log('Sending message:', message);
     
     if (ws && ws.readyState === WebSocket.OPEN) {
         try {
-            const messageString = JSON.stringify(message);
-            debugLog('📤 Sending JSON string:', messageString);
-            debugLog('📤 JSON string length:', messageString.length);
-            
-            ws.send(messageString);
-            debugLog('✅ Message sent successfully');
+            ws.send(JSON.stringify(message));
+            console.log('Message sent successfully');
         } catch (error) {
-            debugLog('💥 Exception sending message:', error);
+            console.error('Error sending message:', error);
             showMessage('Error sending message', 'error');
         }
     } else {
-        debugLog('❌ Cannot send message - WebSocket not ready');
-        debugLog('WebSocket state:', ws ? ws.readyState : 'ws is null');
-        showMessage('Not connected to server', 'error');
+        console.log('WebSocket not ready, queuing message');
+        pendingMessage = message;
+        
+        if (!ws || ws.readyState === WebSocket.CLOSED) {
+            console.log('Connecting to send message...');
+            connectWebSocket();
+        } else {
+            showMessage('Connecting to server...', 'info');
+        }
     }
 };
 
 function sendWordUpdate(word) {
-    debugLog('📝 sendWordUpdate called with word:', word);
     sendMessage({
         type: 'word_update',
         word: word
     });
 }
 
-// ... (keeping the rest of your existing functions for brevity)
-// But let's add debugging to the key functions:
+function updateGameDisplay(gameState) {
+    console.log(gameState); 
+    if (!gameState || !currentPlayer) return;
+    
+    const isMyTurn = gameState.turn === currentPlayer.id;
+    const turnIndicator = document.getElementById('turnIndicator');
+    const turnText = document.getElementById('turnText');
+    
+    if (turnIndicator && turnText) {
+        turnIndicator.classList.remove('hidden');
+        if (isMyTurn) {
+            turnText.textContent = "🎯 Your turn! Type a word quickly!";
+            turnIndicator.style.background = 'linear-gradient(135deg, #28a745, #20c997)';
+        } else {
+            const currentPlayerName = gameState.players.find(p => p.id === gameState.turn)?.name || 'Someone';
+            turnText.textContent = `⏳ ${currentPlayerName}'s turn...`;
+            turnIndicator.style.background = 'linear-gradient(135deg, #6c757d, #5a6268)';
+        }
+    }
+    
+    const gamePlayersEl = document.getElementById('gamePlayers');
+    if (gamePlayersEl && gameState.players) {
+        gamePlayersEl.innerHTML = gameState.players.map(player => `
+            <div class="player-card ${player.id === currentPlayer.id ? 'you' : ''} ${gameState.turn === player.id ? 'current-turn' : ''}">
+                <div class="player-name">
+                    ${player.name}${player.id === currentPlayer.id ? ' (You)' : ''}
+                    ${gameState.turn === player.id ? ' 🎯' : ''}
+                </div>
+                <div class="player-score">${player.score || 0} points</div>
+                <div class="player-word">${player.word || '...'}</div>
+                <span class="status-indicator ${gameState.turn === player.id ? 'your-turn' : 'waiting'}"></span>
+            </div>
+        `).join('');
+    }
+    
+    const wordInput = document.getElementById('wordInput');
+    const submitBtn = document.getElementById('submitBtn');
+    
+    if (wordInput && submitBtn) {
+        const shouldEnableInput = isMyTurn;
+        wordInput.disabled = !shouldEnableInput;
+        submitBtn.disabled = !shouldEnableInput;
+        
+        if (shouldEnableInput && wordInput !== document.activeElement) {
+            setTimeout(() => wordInput.focus(), 100);
+        }
+        
+        if (!shouldEnableInput && wordInput.value.trim()) {
+            wordInput.value = '';
+            lastSentWord = '';
+        }
+    }
+    
+    if (gameState.timeRemaining !== undefined) {
+        updateTimerDisplay(gameState.timeRemaining);
+    }
+    
+    const playerCountEl = document.getElementById('playerCount');
+    if (playerCountEl && gameState.players) {
+        playerCountEl.textContent = gameState.players.length;
+    }
+    
+    if (gameState.prompt) {
+        displayPrompt(gameState.prompt);
+    }
+}
+
+function displayPrompt(prompt) {
+    const gamePromptEl = document.getElementById('gamePrompt');
+    if (gamePromptEl && prompt) {
+        gamePromptEl.textContent = prompt;
+    }
+}
+
+function resetWordInput() {
+    const wordInput = document.getElementById('wordInput');
+    if (wordInput) {
+        wordInput.value = '';
+        lastSentWord = '';
+        wordInput.disabled = true;
+    }
+    
+    const submitBtn = document.getElementById('submitBtn');
+    if (submitBtn) {
+        submitBtn.disabled = true;
+    }
+}
+
+function updateTimerDisplay(timeRemaining) {
+    const timerEl = document.getElementById('gameTimer');
+    if (timerEl && timeRemaining !== undefined) {
+        const seconds = Math.ceil(timeRemaining / 100) / 10;
+        timerEl.textContent = Math.max(0, seconds);
+        
+        if (seconds <= 5 && seconds > 0) {
+            timerEl.style.color = '#dc3545';
+            timerEl.style.fontWeight = 'bold';
+        } else {
+            timerEl.style.color = '';
+            timerEl.style.fontWeight = '';
+        }
+    }
+}
+
+function clearGameTimer() {
+    if (gameTimer) {
+        clearInterval(gameTimer);
+        gameTimer = null;
+    }
+}
 
 async function createRoom() {
-    debugLog('🎮 createRoom function called');
-    
     const playerNameEl = document.getElementById('playerName');
-    debugLog('playerName element found:', !!playerNameEl);
-    
-    if (!playerNameEl) {
-        debugLog('❌ playerName element not found, aborting');
-        return;
-    }
+    if (!playerNameEl) return;
     
     const playerName = playerNameEl.value.trim();
-    debugLog('Player name extracted:', `"${playerName}"`);
-    debugLog('Player name length:', playerName.length);
+    if (!playerName) return showMessage('Please enter your name', 'error');
     
-    if (!playerName) {
-        debugLog('❌ Empty player name, showing error');
-        return showMessage('Please enter your name', 'error');
-    }
+    const message = {
+        type: 'create_room',
+        playerName: playerName,
+        settings: {}
+    };
     
-    debugLog('✅ Player name valid, connecting WebSocket...');
-    await connectWebSocket();
-    
-    debugLog('WebSocket connection attempt completed, setting timeout...');
-    setTimeout(() => {
-        debugLog('📤 Timeout fired, sending create_room message...');
-        
-        const message = {
-            type: 'create_room',
-            playerName: playerName,
-            settings: {}  // Added this!
-        };
-        
-        debugLog('💾 Message to send:', message);
-        sendMessage(message);
-    }, 100);
-    
-    debugLog('✅ createRoom function completed');
+    // Use smart sending - will connect if needed
+    sendMessage(message);
 }
 
 function joinRoom() {
-    debugLog('🚪 joinRoom function called');
-    
     const playerNameEl = document.getElementById('playerName');
     const roomIdEl = document.getElementById('roomIdInput');
-    
-    debugLog('Elements found - playerName:', !!playerNameEl, 'roomId:', !!roomIdEl);
-    
-    if (!playerNameEl || !roomIdEl) {
-        debugLog('❌ Required elements not found');
-        return;
-    }
+    if (!playerNameEl || !roomIdEl) return;
     
     const playerName = playerNameEl.value.trim();
     const roomId = roomIdEl.value.trim().toUpperCase();
     
-    debugLog('Extracted values - playerName:', `"${playerName}"`, 'roomId:', `"${roomId}"`);
+    if (!playerName) return showMessage('Please enter your name', 'error');
+    if (!roomId) return showMessage('Please enter room code', 'error');
     
-    if (!playerName) {
-        debugLog('❌ Empty player name');
-        return showMessage('Please enter your name', 'error');
-    }
-    if (!roomId) {
-        debugLog('❌ Empty room ID');
-        return showMessage('Please enter room code', 'error');
+    const message = {
+        type: 'join_room',
+        roomId: roomId,
+        playerName: playerName,
+    };
+    
+    // Use smart sending - will connect if needed
+    sendMessage(message);
+}
+
+function leaveRoom() {
+    if (ws) ws.close();
+    currentPlayer = null;
+    currentRoom = null;
+    isCreator = false;
+    gameState = null;
+    clearGameTimer();
+    showScreen('homeScreen');
+}
+
+function startGame() {
+    sendMessage({ type: 'start_game' });
+}
+
+function submitWord() {
+    const wordInput = document.getElementById('wordInput');
+    if (!wordInput || wordInput.disabled) return;
+    
+    const word = wordInput.value.trim();
+    if (!word) {
+        showMessage('Please enter a word', 'error');
+        return;
     }
     
-    debugLog('✅ Values valid, connecting...');
-    connectWebSocket();
-    setTimeout(() => {
-        debugLog('📤 Sending join_room message...');
-        sendMessage({
-            type: 'join_room',
-            roomId: roomId,
-            playerName: playerName,
-        });
-    }, 100);
+    if (!gameState || gameState.turn !== currentPlayer.id) {
+        showMessage('It\'s not your turn!', 'error');
+        return;
+    }
+    
+    sendMessage({
+        type: 'submit_word',
+        word: word
+    });
+    
+    wordInput.disabled = true;
+    const submitBtn = document.getElementById('submitBtn');
+    if (submitBtn) submitBtn.disabled = true;
+}
+
+function updateSettings() {
+    const maxPlayersEl = document.getElementById('maxPlayers');
+    const turnTimeLimitEl = document.getElementById('turnTimeLimit');
+    
+    if (!maxPlayersEl || !turnTimeLimitEl) return;
+    
+    const settings = {
+        maxPlayers: parseInt(maxPlayersEl.value),
+        turnTimeLimit: parseInt(turnTimeLimitEl.value) * 1000
+    };
+    sendMessage({ type: 'update_settings', settings });
+}
+
+function updateSettingsDisplay(settings) {
+    const maxPlayersEl = document.getElementById('maxPlayers');
+    const turnTimeLimitEl = document.getElementById('turnTimeLimit');
+    
+    if (maxPlayersEl) maxPlayersEl.value = settings.maxPlayers;
+    if (turnTimeLimitEl) turnTimeLimitEl.value = settings.turnTimeLimit / 1000;
+}
+
+function showScreen(screenId) {
+    document.querySelectorAll('.screen').forEach(screen => screen.classList.remove('active'));
+    const targetScreen = document.getElementById(screenId);
+    if (targetScreen) targetScreen.classList.add('active');
+}
+
+function updateLobbyPlayers(players) {
+    const lobbyPlayersEl = document.getElementById('lobbyPlayers');
+    if (!lobbyPlayersEl || !players) return;
+    
+    lobbyPlayersEl.innerHTML = players.map(player => `
+        <div class="player-card ${player.id === currentPlayer?.id ? 'you' : ''}">
+            <div class="player-name">${player.name}${player.id === currentPlayer?.id ? ' (You)' : ''}</div>
+            <div class="player-score">Ready</div>
+        </div>
+    `).join('');
+}
+
+function displayFinalResults(results) {
+    showScreen('finalResultsScreen');
+    
+    if (results.finalLeaderboard) {
+        updateLeaderboard(results.finalLeaderboard, 'finalLeaderboard');
+        
+        const winner = results.finalLeaderboard[0];
+        if (winner && winner.id === currentPlayer?.id) {
+            showMessage('🎉 Congratulations! You won!', 'success');
+        }
+    }
+}
+
+function updateLeaderboard(leaderboard, containerId) {
+    const container = document.getElementById(containerId);
+    if (!container || !leaderboard) return;
+    
+    container.innerHTML = leaderboard.map((player, index) => `
+        <div class="player-card ${player.id === currentPlayer?.id ? 'you' : ''}">
+            <div class="player-name">
+                ${index < 3 ? ['🥇', '🥈', '🥉'][index] : `${index + 1}.`} 
+                ${player.name}${player.id === currentPlayer?.id ? ' (You)' : ''}
+            </div>
+            <div class="player-score">${player.score} points</div>
+        </div>
+    `).join('');
+}
+
+function backToLobby() {
+    sendMessage({ type: 'back_to_lobby' });
+}
+
+function backToHome() {
+    leaveRoom();
 }
 
 function showMessage(text, type = 'info') {
-    debugLog(`💬 showMessage: "${text}" (${type})`);
-    
     const messageContainer = document.getElementById('messageContainer');
-    if (!messageContainer) {
-        debugLog('❌ messageContainer not found');
-        return;
-    }
+    if (!messageContainer) return;
     
     const message = document.createElement('div');
     message.className = `message ${type}`;
     message.textContent = text;
     messageContainer.appendChild(message);
     
-    debugLog('✅ Message element created and added');
-    
     setTimeout(() => {
         if (message.parentNode) {
             message.remove();
-            debugLog('✅ Message removed after timeout');
         }
     }, 5000);
 }
 
-function showScreen(screenId) {
-    debugLog(`📺 showScreen called with: ${screenId}`);
-    
-    const allScreens = document.querySelectorAll('.screen');
-    debugLog('Total screens found:', allScreens.length);
-    
-    allScreens.forEach(screen => {
-        screen.classList.remove('active');
-        debugLog('Removed active from:', screen.id);
-    });
-    
-    const targetScreen = document.getElementById(screenId);
-    if (targetScreen) {
-        targetScreen.classList.add('active');
-        debugLog('✅ Activated screen:', screenId);
-    } else {
-        debugLog('❌ Target screen not found:', screenId);
-    }
-}
-
-// Add the rest of your existing functions here...
-// For now, let's add basic versions of the missing functions:
-
-function updateLobbyPlayers(players) {
-    debugLog('👥 updateLobbyPlayers called with:', players);
-    // Your existing code here
-}
-
-function updateGameDisplay(gameState) {
-    debugLog('🎮 updateGameDisplay called with:', gameState);
-    // Your existing code here
-}
-
-function displayPrompt(prompt) {
-    debugLog('💭 displayPrompt called with:', prompt);
-    // Your existing code here
-}
-
-function resetWordInput() {
-    debugLog('🔄 resetWordInput called');
-    // Your existing code here
-}
-
-function clearGameTimer() {
-    debugLog('⏰ clearGameTimer called');
-    // Your existing code here
-}
-
-function displayFinalResults(results) {
-    debugLog('🏆 displayFinalResults called with:', results);
-    // Your existing code here
-}
-
-function updateSettingsDisplay(settings) {
-    debugLog('⚙️ updateSettingsDisplay called with:', settings);
-    // Your existing code here
-}
-
-// DOMContentLoaded event with debugging
 document.addEventListener('DOMContentLoaded', () => {
-    debugLog('🚀 DOMContentLoaded event fired');
-    debugLog('Document ready state:', document.readyState);
+    const enterKeyHandler = (inputId, action) => {
+        const input = document.getElementById(inputId);
+        if (input) {
+            input.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    action();
+                }
+            });
+        }
+    };
     
-    // Your existing DOMContentLoaded code here...
+    enterKeyHandler('playerName', createRoom);
+    enterKeyHandler('roomIdInput', joinRoom);
+    enterKeyHandler('wordInput', submitWord);
     
-    debugLog('✅ DOMContentLoaded setup completed');
+    const roomIdInput = document.getElementById('roomIdInput');
+    if (roomIdInput) {
+        roomIdInput.addEventListener('input', (e) => {
+            e.target.value = e.target.value.toUpperCase();
+        });
+    }
+    
+    const wordInput = document.getElementById('wordInput');
+    if (wordInput) {
+        wordInput.addEventListener('input', (e) => {
+            const currentWord = e.target.value.trim();
+            if (currentWord !== lastSentWord && !wordInput.disabled && 
+                gameState && gameState.turn === currentPlayer.id) {
+                sendWordUpdate(currentWord);
+                lastSentWord = currentWord;
+            }
+        });
+    }
+    
+    const playerNameInput = document.getElementById('playerName');
+    if (playerNameInput) {
+        playerNameInput.focus();
+    }
+});
+
+window.addEventListener('beforeunload', () => {
+    if (ws) {
+        ws.close();
+    }
 });
 
 window.addEventListener('load', () => {
-    debugLog('🌍 Window load event fired');
     updateConnectionStatus('disconnected');
-    debugLog('✅ Initial connection status set');
 });
