@@ -40,7 +40,7 @@ process.on('SIGTERM', () => {
   server.close();
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = 3000;
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`Word game server running on port ${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);

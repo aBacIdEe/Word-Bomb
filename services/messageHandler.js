@@ -10,6 +10,8 @@ class MessageHandler {
   handleConnection(ws, req) {
     console.log("New WebSocket connection");
 
+    console.log(req);
+
     ws.on("message", (data) => {
       try {
         const message = JSON.parse(data);
